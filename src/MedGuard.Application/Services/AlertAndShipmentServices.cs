@@ -1,0 +1,56 @@
+using MedGuard.Application.DTOs;
+using MedGuard.Application.Exceptions;
+using MedGuard.Application.Interfaces;
+using MedGuard.Domain.Entities;
+using MedGuard.Domain.Interfaces;
+
+namespace MedGuard.Application.Services;
+
+public class ShipmentService : IShipmentService
+{
+    private readonly IUnitOfWork _uow;
+    public ShipmentService(IUnitOfWork uow) => _uow = uow;
+
+    public async Task<ShipmentDto> CreateShipmentAsync(CreateShipmentRequest request, CancellationToken ct = default)
+    {
+        var batch = await _uow.Batches.GetByIdAsync(request.BatchId, ct)
+            ?? throw new NotFoundException(nameof(Batch), request.BatchId);
+
+        // Batch.Ship() enforces the "no shipping while quarantined/recalled" rule itself
+        // and throws InvalidBatchStateTransitionException — no status check needed here.
+        var shipment = batch.Ship(request.OriginLocation, request.DestinationLocation, request.CourierName);
+
+        await _uow.Shipments.AddAsync(shipment, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return ToDto(shipment);
+    }
+
+    public async Task<ShipmentDto> MarkDeliveredAsync(Guid shipmentId, CancellationToken ct = default)
+    {
+        var shipment = await _uow.Shipments.GetByIdAsync(shipmentId, ct)
+            ?? throw new NotFoundException(nameof(Shipment), shipmentId);
+
+        shipment.MarkDelivered();
+        _uow.Shipments.Update(shipment);
+
+        var batch = await _uow.Batches.GetByIdAsync(shipment.BatchId, ct);
+        if (batch is not null)
+        {
+            batch.MarkDelivered();
+            _uow.Batches.Update(batch);
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        return ToDto(shipment);
+    }
+
+    public async Task<IReadOnlyList<ShipmentDto>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var shipments = await _uow.Shipments.GetByBatchIdAsync(batchId, ct);
+        return shipments.Select(ToDto).ToList();
+    }
+
+    private static ShipmentDto ToDto(Shipment s) => new(
+        s.Id, s.BatchId, s.OriginLocation, s.DestinationLocation, s.CourierName, s.Status, s.DepartedAtUtc, s.ArrivedAtUtc);
+}
