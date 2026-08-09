@@ -1,3 +1,5 @@
+using MedGuard.Domain.Exceptions;
+
 namespace MedGuard.Domain.ValueObjects;
 
 /// <summary>
@@ -12,7 +14,7 @@ public sealed record TemperatureRange
     public TemperatureRange(decimal minC, decimal maxC)
     {
         if (minC >= maxC)
-            throw new Exceptions.InvalidTemperatureRangeException(minC, maxC);
+            throw new InvalidTemperatureRangeException(minC, maxC);
 
         MinC = minC;
         MaxC = maxC;

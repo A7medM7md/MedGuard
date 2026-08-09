@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * MedGuard design system — ported 1:1 from the Lovable reference design.
+ * Status colors are semantic: critical / warning / safe / transit / neutral.
+ * They must never be used decoratively — see shared/status.ts, the single
+ * source of truth for status -> {label, tone, icon} across the whole app.
+ */
+
+:root {
+  --radius: 8px;
+
+  --primary-900: oklch(0.3397 0.0759 244.32);
+  --primary-700: oklch(0.4564 0.1042 243.17);
+  --primary-600: oklch(0.5263 0.1244 244.8);
+  --primary-100: oklch(0.9478 0.0176 234.5);
+
+  --background: oklch(0.9683 0.0069 247.9);
+  --foreground: oklch(0.2101 0.0318 264.66);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2101 0.0318 264.66);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2101 0.0318 264.66);
+  --primary: oklch(0.5263 0.1244 244.8);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9288 0.0126 255.51);
+  --secondary-foreground: oklch(0.2101 0.0318 264.66);
+  --muted: oklch(0.9683 0.0069 247.9);
+  --muted-foreground: oklch(0.4455 0.0374 257.28);
+  --accent: oklch(0.9478 0.0176 234.5);
+  --accent-foreground: oklch(0.3397 0.0759 244.32);
+  --border: oklch(0.869 0.0198 252.89);
+  --input: oklch(0.869 0.0198 252.89);
+  --ring: oklch(0.5263 0.1244 244.8);
+
+  --critical: oklch(0.5771 0.2152 27.33);
+  --critical-fg: oklch(1 0 0);
+  --critical-bg: oklch(0.9705 0.0129 17.38);
+  --critical-border: oklch(0.8077 0.1035 19.57);
+  --warning: oklch(0.6658 0.1574 58.32);
+  --warning-bg: oklch(0.9869 0.0214 95.28);
+  --warning-border: oklch(0.879 0.1534 91.61);
+  --safe: oklch(0.5273 0.1371 150.07);
+  --safe-bg: oklch(0.9819 0.0181 155.83);
+  --safe-border: oklch(0.8712 0.1363 154.45);
+  --transit: oklch(0.4564 0.1042 243.17);
+  --transit-bg: oklch(0.9735 0.011 225.98);
+  --transit-border: oklch(0.8077 0.055 240);
+  --neutralst: oklch(0.4444 0.0096 73.64);
+  --neutralst-bg: oklch(0.9699 0.0013 106.42);
+  --neutralst-border: oklch(0.869 0.005 106);
+
+  --chart-temp: oklch(0.4564 0.1042 243.17);
+  --chart-humidity: oklch(0.5413 0.2466 293.01);
+
+  --sidebar: oklch(0.3397 0.0759 244.32);
+  --sidebar-foreground: oklch(0.9478 0.0176 234.5);
+  --sidebar-primary: oklch(0.5263 0.1244 244.8);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.4564 0.1042 243.17);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(0.4 0.08 244);
+  --sidebar-ring: oklch(0.5263 0.1244 244.8);
+}
+
+.dark {
+  --background: oklch(0.1625 0.0143 258.36);
+  --foreground: oklch(0.9683 0.0069 247.9);
+  --card: oklch(0.2101 0.0318 264.66);
+  --card-foreground: oklch(0.9683 0.0069 247.9);
+  --popover: oklch(0.2101 0.0318 264.66);
+  --popover-foreground: oklch(0.9683 0.0069 247.9);
+  --primary: oklch(0.6263 0.1244 244.8);
+  --primary-foreground: oklch(0.1625 0.0143 258.36);
+  --secondary: oklch(0.2795 0.0368 260.03);
+  --secondary-foreground: oklch(0.9683 0.0069 247.9);
+  --muted: oklch(0.2795 0.0368 260.03);
+  --muted-foreground: oklch(0.7107 0.0351 256.79);
+  --accent: oklch(0.3717 0.0392 257.29);
+  --accent-foreground: oklch(0.9683 0.0069 247.9);
+  --border: oklch(0.3717 0.0392 257.29);
+  --input: oklch(0.3717 0.0392 257.29);
+  --ring: oklch(0.6263 0.1244 244.8);
+
+  --critical: oklch(0.7 0.2 25);
+  --critical-fg: oklch(0.16 0.014 258);
+  --critical-bg: oklch(0.28 0.08 25);
+  --critical-border: oklch(0.45 0.14 25);
+  --warning: oklch(0.8 0.15 75);
+  --warning-bg: oklch(0.29 0.06 70);
+  --warning-border: oklch(0.47 0.1 70);
+  --safe: oklch(0.78 0.16 152);
+  --safe-bg: oklch(0.27 0.06 152);
+  --safe-border: oklch(0.44 0.1 152);
+  --transit: oklch(0.75 0.1 240);
+  --transit-bg: oklch(0.27 0.05 243);
+  --transit-border: oklch(0.44 0.08 243);
+  --neutralst: oklch(0.78 0.008 74);
+  --neutralst-bg: oklch(0.28 0.004 74);
+  --neutralst-border: oklch(0.44 0.006 74);
+
+  --chart-temp: oklch(0.72 0.11 240);
+  --chart-humidity: oklch(0.7 0.19 293);
+
+  --sidebar: oklch(0.2101 0.0318 264.66);
+  --sidebar-foreground: oklch(0.9683 0.0069 247.9);
+  --sidebar-primary: oklch(0.6263 0.1244 244.8);
+  --sidebar-primary-foreground: oklch(0.1625 0.0143 258.36);
+  --sidebar-accent: oklch(0.2795 0.0368 260.03);
+  --sidebar-accent-foreground: oklch(0.9683 0.0069 247.9);
+  --sidebar-border: oklch(0.3717 0.0392 257.29);
+  --sidebar-ring: oklch(0.6263 0.1244 244.8);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary-600);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .numeric {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .display-figure {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    font-weight: 700;
+  }
+}
+
+/* --- Leaflet / OSM surface -------------------------------------------------- */
+.mg-map .leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: var(--muted);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+.dark .mg-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.7);
+}
+.mg-map .leaflet-control-attribution {
+  background: color-mix(in oklab, var(--card) 85%, transparent);
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.mg-pin-dot {
+  display: block;
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+.mg-pin-pulse {
+  animation: mg-pin-pulse 1.6s ease-out infinite;
+}
+@keyframes mg-pin-pulse {
+  0% { box-shadow: 0 0 0 0 currentColor; }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
