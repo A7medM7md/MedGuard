@@ -1,8 +1,8 @@
 using MedGuard.Api.Bases;
 using MedGuard.Application.Bases;
+using MedGuard.Application.Common;
 using MedGuard.Application.DTOs;
 using MedGuard.Application.Interfaces;
-using MedGuard.Domain.Common;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MedGuard.API.Controllers;

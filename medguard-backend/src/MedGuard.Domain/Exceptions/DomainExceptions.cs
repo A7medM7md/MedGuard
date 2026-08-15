@@ -29,3 +29,9 @@ public sealed class InvalidShipmentStateTransitionException : DomainException
     public InvalidShipmentStateTransitionException(Guid shipmentId, string currentStatus, string attemptedAction)
         : base($"Shipment {shipmentId} cannot {attemptedAction} while its status is '{currentStatus}'.") { }
 }
+
+public sealed class InvalidDeviceAssignmentException : DomainException
+{
+    public InvalidDeviceAssignmentException(string deviceCode, string reason)
+        : base($"Device {deviceCode} {reason}.") { }
+}

@@ -1,5 +1,5 @@
-﻿using MedGuard.Application.Resources;
-using MedGuard.Domain.Common;
+﻿using MedGuard.Application.Common;
+using MedGuard.Application.Resources;
 using System.Net;
 
 namespace MedGuard.Application.Bases

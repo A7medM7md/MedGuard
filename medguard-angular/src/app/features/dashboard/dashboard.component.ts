@@ -39,7 +39,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     TableRowSkeletonComponent,
     AlertFeedComponent,
     EmptyStateComponent,
-    MapViewComponent,
+    // MapViewComponent,
     DataTableComponent,
     ColumnDirective,
     StatusBadgeComponent,
@@ -129,7 +129,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
         </section>
 
         <!-- Fleet map -->
-        <section class="rounded-lg border border-border bg-card p-4 shadow-card">
+        <!-- <section class="rounded-lg border border-border bg-card p-4 shadow-card">
           <header class="mb-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
             <h2 class="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
               <svg [lucideIcon]="Activity" class="h-4 w-4 shrink-0 text-transit" aria-hidden="true"></svg>
@@ -143,7 +143,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
             <li class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-critical"></span> Breach in transit</li>
             <li class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-safe"></span> Delivered</li>
           </ul>
-        </section>
+        </section> -->
 
         <!-- Recent batches -->
         <section>

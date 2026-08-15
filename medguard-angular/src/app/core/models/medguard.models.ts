@@ -3,6 +3,16 @@ export type AlertSeverity = 'critical' | 'warning';
 export type ShipmentStatus = 'scheduled' | 'in_transit' | 'delivered' | 'delayed';
 export type DeviceStatus = 'online' | 'stale' | 'offline';
 
+// ApiResponse<T> is a generic interface that represents the structure of an API response. It contains a single property, data, which holds the actual data returned from the API. The type of data is determined by the generic type parameter T, allowing for flexibility in specifying the expected data type for different API responses.
+export interface ApiResponse<T> {
+  succeeded: boolean;
+  statusCode: number;
+  message: string;
+  errors: string[];
+  meta: string | null;
+  data: T;
+}
+
 export interface Batch {
   id: string;
   batchNumber: string;

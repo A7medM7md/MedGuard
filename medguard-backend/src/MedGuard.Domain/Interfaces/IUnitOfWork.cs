@@ -6,6 +6,8 @@ public interface IUnitOfWork
     ISensorReadingRepository SensorReadings { get; }
     IAlertRepository Alerts { get; }
     IShipmentRepository Shipments { get; }
+    IDeviceRepository Devices { get; }
+
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

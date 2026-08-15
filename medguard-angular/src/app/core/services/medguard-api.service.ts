@@ -1,8 +1,8 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, delay, of } from 'rxjs';
+import { Observable, delay, map, of } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { Alert, Batch, Device, Shipment } from '../models/medguard.models';
+import { Alert, ApiResponse, Batch, Device, Shipment } from '../models/medguard.models';
 import { MOCK_ALERTS, MOCK_BATCHES, MOCK_DEVICES, MOCK_SHIPMENTS } from '../mock-data';
 
 /** Simulated network latency so loading/skeleton states are visible in dummy mode. */
@@ -40,12 +40,12 @@ export class MedGuardApiService {
   // ------------------------------------------------------------------ Batches
 
   getBatches(): Observable<Batch[]> {
-    if (environment.useDummyData) {
-      return of(MOCK_BATCHES).pipe(delay(DUMMY_LATENCY_MS));
-    }
+    // if (environment.useDummyData) {
+    //   return of(MOCK_BATCHES).pipe(delay(DUMMY_LATENCY_MS));
+    // }
     // REAL API: GET /api/batches -> BatchDto[]
-    // return this.http.get<BatchDto[]>(`${this.baseUrl}/batches`).pipe(map(dtos => dtos.map(mapBatchDto)));
-    return of(MOCK_BATCHES); // fallback until wired
+    return this.http.get<ApiResponse<Batch[]>>(`${this.baseUrl}/batches`).pipe(map(dtos => dtos.data));
+    // return of(MOCK_BATCHES); // fallback until wired
   }
 
   getBatchById(id: string): Observable<Batch | undefined> {

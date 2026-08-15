@@ -12,6 +12,8 @@ public static class DependencyInjection
         services.AddScoped<IColdChainMonitoringService, ColdChainMonitoringService>();
         services.AddScoped<IAlertService, AlertService>();
         services.AddScoped<IShipmentService, ShipmentService>();
+        services.AddScoped<IDeviceService, DeviceService>();
+
         return services;
     }
 }

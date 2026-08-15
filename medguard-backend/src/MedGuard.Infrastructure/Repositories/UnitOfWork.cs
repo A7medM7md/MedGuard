@@ -12,19 +12,22 @@ public class UnitOfWork : IUnitOfWork
         IBatchRepository batches,
         ISensorReadingRepository sensorReadings,
         IAlertRepository alerts,
-        IShipmentRepository shipments)
+        IShipmentRepository shipments,
+        IDeviceRepository devices)
     {
         _context = context;
         Batches = batches;
         SensorReadings = sensorReadings;
         Alerts = alerts;
         Shipments = shipments;
+        Devices = devices;
     }
 
     public IBatchRepository Batches { get; }
     public ISensorReadingRepository SensorReadings { get; }
     public IAlertRepository Alerts { get; }
     public IShipmentRepository Shipments { get; }
+    public IDeviceRepository Devices { get; }
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default) => _context.SaveChangesAsync(ct);
 }

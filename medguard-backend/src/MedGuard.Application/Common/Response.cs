@@ -1,6 +1,6 @@
 ﻿using System.Net;
 
-namespace MedGuard.Domain.Common
+namespace MedGuard.Application.Common
 {
     public class Response<T>
     {
