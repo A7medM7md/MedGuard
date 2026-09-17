@@ -1,4 +1,6 @@
-﻿using MedGuard.Application.DTOs;
+﻿using MedGuard.Application.Bases;
+using MedGuard.Application.Common;
+using MedGuard.Application.DTOs;
 using MedGuard.Application.Exceptions;
 using MedGuard.Application.Interfaces;
 using MedGuard.Domain.Entities;
@@ -6,12 +8,12 @@ using MedGuard.Domain.Interfaces;
 
 namespace MedGuard.Application.Services;
 
-public class DeviceService : IDeviceService
+public class DeviceService : ResponseHandler, IDeviceService
 {
     private readonly IUnitOfWork _uow;
     public DeviceService(IUnitOfWork uow) => _uow = uow;
 
-    public async Task<DeviceDto> RegisterDeviceAsync(RegisterDeviceRequest request, CancellationToken ct = default)
+    public async Task<Response<DeviceDto>> RegisterDeviceAsync(RegisterDeviceRequest request, CancellationToken ct = default)
     {
         var existing = await _uow.Devices.GetByDeviceCodeAsync(request.DeviceCode, ct);
         if (existing is not null)
@@ -21,10 +23,11 @@ public class DeviceService : IDeviceService
         await _uow.Devices.AddAsync(device, ct);
         await _uow.SaveChangesAsync(ct);
 
-        return ToDto(device);
+        var result = ToDto(device);
+        return Success(result);
     }
 
-    public async Task<DeviceDto> RecordHeartbeatAsync(Guid deviceId, DeviceHeartbeatRequest request, CancellationToken ct = default)
+    public async Task<Response<DeviceDto>> RecordHeartbeatAsync(Guid deviceId, DeviceHeartbeatRequest request, CancellationToken ct = default)
     {
         var device = await _uow.Devices.GetByIdAsync(deviceId, ct)
             ?? throw new NotFoundException(nameof(Device), deviceId);
@@ -33,10 +36,11 @@ public class DeviceService : IDeviceService
         _uow.Devices.Update(device);
         await _uow.SaveChangesAsync(ct);
 
-        return ToDto(device);
+        var result = ToDto(device);
+        return Success(result);
     }
 
-    public async Task<DeviceDto> AssignToBatchAsync(Guid deviceId, Guid batchId, CancellationToken ct = default)
+    public async Task<Response<DeviceDto>> AssignToBatchAsync(Guid deviceId, Guid batchId, CancellationToken ct = default)
     {
         var device = await _uow.Devices.GetByIdAsync(deviceId, ct)
             ?? throw new NotFoundException(nameof(Device), deviceId);
@@ -50,10 +54,11 @@ public class DeviceService : IDeviceService
         _uow.Devices.Update(device);
         await _uow.SaveChangesAsync(ct);
 
-        return ToDto(device);
+        var result = ToDto(device);
+        return Success(result);
     }
 
-    public async Task<DeviceDto> UnassignAsync(Guid deviceId, CancellationToken ct = default)
+    public async Task<Response<DeviceDto>> UnassignAsync(Guid deviceId, CancellationToken ct = default)
     {
         var device = await _uow.Devices.GetByIdAsync(deviceId, ct)
             ?? throw new NotFoundException(nameof(Device), deviceId);
@@ -62,13 +67,19 @@ public class DeviceService : IDeviceService
         _uow.Devices.Update(device);
         await _uow.SaveChangesAsync(ct);
 
-        return ToDto(device);
+        var result = ToDto(device);
+        return Success(result);
     }
 
-    public async Task<IReadOnlyList<DeviceDto>> GetAllAsync(CancellationToken ct = default)
+    public async Task<Response<List<DeviceDto>>> GetAllAsync(CancellationToken ct = default)
     {
         var devices = await _uow.Devices.GetAllAsync(ct);
-        return devices.Select(ToDto).ToList();
+
+        if (devices is null)
+            return NotFound<List<DeviceDto>>();
+
+        var result = devices.Select(ToDto).ToList();
+        return Success(result);
     }
 
     private static DeviceDto ToDto(Device d) => new(

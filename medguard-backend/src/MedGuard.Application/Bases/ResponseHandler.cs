@@ -16,7 +16,7 @@ namespace MedGuard.Application.Bases
             Response<T>.Success(data, message ?? SharedResourcesKeys.Updated, HttpStatusCode.OK, meta);
 
         public Response<T> Deleted<T>(string? message = null, bool noContent = false) =>
-            Response<T>.Success(default, message ?? SharedResourcesKeys.Deleted,
+            Response<T>.Success(default!, message ?? SharedResourcesKeys.Deleted,
                 noContent ? HttpStatusCode.NoContent : HttpStatusCode.OK);
 
         public Response<T> BadRequest<T>(string? message = null, List<string>? errors = null) =>

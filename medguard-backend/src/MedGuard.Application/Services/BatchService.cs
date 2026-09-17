@@ -1,3 +1,5 @@
+using MedGuard.Application.Bases;
+using MedGuard.Application.Common;
 using MedGuard.Application.DTOs;
 using MedGuard.Application.Exceptions;
 using MedGuard.Application.Interfaces;
@@ -7,13 +9,13 @@ using MedGuard.Domain.ValueObjects;
 
 namespace MedGuard.Application.Services;
 
-public class BatchService : IBatchService
+public class BatchService : ResponseHandler, IBatchService
 {
     private readonly IUnitOfWork _uow;
 
     public BatchService(IUnitOfWork uow) => _uow = uow;
 
-    public async Task<BatchDto> CreateBatchAsync(CreateBatchRequest request, CancellationToken ct = default)
+    public async Task<Response<BatchDto>> CreateBatchAsync(CreateBatchRequest request, CancellationToken ct = default)
     {
         var existing = await _uow.Batches.GetByBatchNumberAsync(request.BatchNumber, ct);
         if (existing is not null)
@@ -36,16 +38,24 @@ public class BatchService : IBatchService
         await _uow.Batches.AddAsync(batch, ct);
         await _uow.SaveChangesAsync(ct);
 
-        return ToDto(batch);
+        var result = ToDto(batch);
+
+        return Created(result, "Batch created successfully.");
     }
 
-    public async Task<BatchDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<Response<BatchDto?>> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
         var batch = await _uow.Batches.GetByIdAsync(id, ct);
-        return batch is null ? null : ToDto(batch);
+
+        if (batch is null)
+            return NotFound<BatchDto?>($"Batch with ID '{id}' not found.");
+
+        var result = ToDto(batch);
+
+        return Success<BatchDto?>(result, "Batch retrieved successfully.");
     }
 
-    public async Task<BatchDetailDto> GetDetailAsync(Guid id, CancellationToken ct = default)
+    public async Task<Response<BatchDetailDto>> GetDetailAsync(Guid id, CancellationToken ct = default)
     {
         var batch = await _uow.Batches.GetWithHistoryAsync(id, ct)
             ?? throw new NotFoundException(nameof(Batch), id);
@@ -66,13 +76,16 @@ public class BatchService : IBatchService
             .Select(s => new ShipmentDto(s.Id, s.BatchId, s.OriginLocation, s.DestinationLocation, s.CourierName, s.Status, s.DepartedAtUtc, s.ArrivedAtUtc))
             .ToList();
 
-        return new BatchDetailDto(ToDto(batch), readings, alerts, shipments);
+        var result = new BatchDetailDto(ToDto(batch), readings, alerts, shipments);
+
+        return Success(result, "Batch details retrieved successfully.");
     }
 
-    public async Task<IReadOnlyList<BatchDto>> GetAllAsync(CancellationToken ct = default)
+    public async Task<Response<List<BatchDto>>> GetAllAsync(CancellationToken ct = default)
     {
         var batches = await _uow.Batches.GetAllAsync(ct);
-        return batches.Select(ToDto).ToList();
+        var result = batches.Select(ToDto).ToList();
+        return Success(result, "Batches retrieved successfully.");
     }
 
     // SafeRange.MinC / SafeRange.MaxC replace the old flat MinSafeTemperatureC / MaxSafeTemperatureC

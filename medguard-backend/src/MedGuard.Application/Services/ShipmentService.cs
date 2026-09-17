@@ -1,3 +1,5 @@
+using MedGuard.Application.Bases;
+using MedGuard.Application.Common;
 using MedGuard.Application.DTOs;
 using MedGuard.Application.Exceptions;
 using MedGuard.Application.Interfaces;
@@ -6,12 +8,12 @@ using MedGuard.Domain.Interfaces;
 
 namespace MedGuard.Application.Services;
 
-public class ShipmentService : IShipmentService
+public class ShipmentService : ResponseHandler, IShipmentService
 {
     private readonly IUnitOfWork _uow;
     public ShipmentService(IUnitOfWork uow) => _uow = uow;
 
-    public async Task<ShipmentDto> CreateShipmentAsync(CreateShipmentRequest request, CancellationToken ct = default)
+    public async Task<Response<ShipmentDto>> CreateShipmentAsync(CreateShipmentRequest request, CancellationToken ct = default)
     {
         var batch = await _uow.Batches.GetByIdAsync(request.BatchId, ct)
             ?? throw new NotFoundException(nameof(Batch), request.BatchId);
@@ -23,10 +25,11 @@ public class ShipmentService : IShipmentService
         await _uow.Shipments.AddAsync(shipment, ct);
         await _uow.SaveChangesAsync(ct);
 
-        return ToDto(shipment);
+        var result = ToDto(shipment);
+        return Success(result);
     }
 
-    public async Task<ShipmentDto> MarkDeliveredAsync(Guid shipmentId, CancellationToken ct = default)
+    public async Task<Response<ShipmentDto>> MarkDeliveredAsync(Guid shipmentId, CancellationToken ct = default)
     {
         var shipment = await _uow.Shipments.GetByIdAsync(shipmentId, ct)
             ?? throw new NotFoundException(nameof(Shipment), shipmentId);
@@ -42,13 +45,15 @@ public class ShipmentService : IShipmentService
         }
 
         await _uow.SaveChangesAsync(ct);
-        return ToDto(shipment);
+        var result = ToDto(shipment);
+        return Success(result);
     }
 
-    public async Task<IReadOnlyList<ShipmentDto>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default)
+    public async Task<Response<List<ShipmentDto>>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default)
     {
         var shipments = await _uow.Shipments.GetByBatchIdAsync(batchId, ct);
-        return shipments.Select(ToDto).ToList();
+        var result = shipments.Select(ToDto).ToList();
+        return Success(result);
     }
 
     private static ShipmentDto ToDto(Shipment s) => new(

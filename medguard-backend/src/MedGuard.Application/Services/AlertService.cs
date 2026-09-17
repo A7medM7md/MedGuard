@@ -1,4 +1,5 @@
-﻿using MedGuard.Application.Common;
+﻿using MedGuard.Application.Bases;
+using MedGuard.Application.Common;
 using MedGuard.Application.DTOs;
 using MedGuard.Application.Exceptions;
 using MedGuard.Application.Interfaces;
@@ -8,20 +9,19 @@ using MedGuard.Domain.Interfaces;
 
 namespace MedGuard.Application.Services;
 
-public class AlertService : IAlertService
+public class AlertService : ResponseHandler, IAlertService
 {
     private readonly IUnitOfWork _uow;
     public AlertService(IUnitOfWork uow) => _uow = uow;
 
-    public async Task<IReadOnlyList<AlertDto>> GetUnresolvedAsync(CancellationToken ct = default)
+    public async Task<Response<List<AlertDto>>> GetUnresolvedAsync(CancellationToken ct = default)
     {
         var alerts = await _uow.Alerts.GetUnresolvedAsync(ct);
-        return alerts.Select(a => new AlertDto(a.Id, a.BatchId, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc)).ToList();
+        var dtos = alerts.Select(a => new AlertDto(a.Id, a.BatchId, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc)).ToList();
+        return Success(dtos);
     }
 
-    public async Task<PagedResult<AlertDto>> GetPagedAsync(
-        int page,
-        int pageSize,
+    public async Task<Response<PagedResult<AlertDto>>> GetPagedAsync(int page, int pageSize,
         AlertSeverity? severity = null,
         bool? isResolved = null,
         CancellationToken ct = default)
@@ -32,7 +32,9 @@ public class AlertService : IAlertService
         var (items, totalCount) = await _uow.Alerts.GetPagedAsync(page, pageSize, severity, isResolved, ct);
         var dtos = items.Select(a => new AlertDto(a.Id, a.BatchId, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc)).ToList();
 
-        return new PagedResult<AlertDto>(dtos, page, pageSize, totalCount);
+        var result = new PagedResult<AlertDto>(dtos, page, pageSize, totalCount);
+
+        return Success(result);
     }
 
     public async Task ResolveAsync(Guid alertId, CancellationToken ct = default)

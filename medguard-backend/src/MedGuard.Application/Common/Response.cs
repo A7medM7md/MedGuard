@@ -10,11 +10,11 @@ namespace MedGuard.Application.Common
 
         public string Message { get; set; } = string.Empty;
 
-        public List<string> Errors { get; set; }
+        public List<string> Errors { get; set; } = new();
 
-        public object Meta { get; set; } = null!;
+        public object? Meta { get; set; }
 
-        public T Data { get; set; } = default!;
+        public T? Data { get; set; } = default;
 
         // Private constructor to force using factory methods
         public Response() { }
@@ -24,7 +24,7 @@ namespace MedGuard.Application.Common
             T data,
             string message = "Request completed successfully",
             HttpStatusCode statusCode = HttpStatusCode.OK,
-            object meta = null)
+            object? meta = null)
         {
             return new Response<T>
             {
@@ -32,7 +32,7 @@ namespace MedGuard.Application.Common
                 StatusCode = statusCode,
                 Message = message,
                 Data = data,
-                Errors = null,
+                Errors = new List<string>(),
                 Meta = meta
             };
         }
@@ -41,8 +41,8 @@ namespace MedGuard.Application.Common
         public static Response<T> Fail(
             string message = "Request failed",
             HttpStatusCode statusCode = HttpStatusCode.BadRequest,
-            List<string> errors = null,
-            object meta = null)
+            List<string>? errors = null,
+            object? meta = null)
         {
             return new Response<T>
             {
