@@ -1,0 +1,54 @@
+@page
+@model MedGuard.IdentityServer.Pages.Login.Index
+
+<div class="mg-auth-shell">
+    <div class="mg-auth-card">
+        <div class="mg-auth-logo">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+                <path d="m9 12 2 2 4-4" />
+            </svg>
+            <h1>MedGuard</h1>
+            <p>Sign in to the cold-chain control center</p>
+        </div>
+
+        <partial name="_ValidationSummary" />
+
+        @if (Model.View.EnableLocalLogin)
+        {
+            <form asp-page="/Account/Login/Index">
+                <input type="hidden" asp-for="Input.ReturnUrl" />
+
+                <div class="mg-field">
+                    <label asp-for="Input.Username">Username</label>
+                    <input class="form-control" placeholder="admin@medguard.local" asp-for="Input.Username" autofocus autocomplete="username">
+                </div>
+                <div class="mg-field">
+                    <label asp-for="Input.Password">Password</label>
+                    <input type="password" class="form-control" placeholder="••••••••" asp-for="Input.Password" autocomplete="current-password">
+                </div>
+
+                @if (Model.View.AllowRememberLogin)
+                {
+                    <div class="mg-remember">
+                        <input type="checkbox" asp-for="Input.RememberLogin">
+                        <label asp-for="Input.RememberLogin" style="margin: 0;">Remember my login</label>
+                    </div>
+                }
+
+                <div class="mg-auth-actions">
+                    <button class="btn btn-secondary" name="Input.Button" value="cancel" type="submit">Cancel</button>
+                    <button class="btn btn-primary" name="Input.Button" value="login" type="submit">Sign in</button>
+                </div>
+            </form>
+        }
+        else if (!Model.View.VisibleExternalProviders.Any())
+        {
+            <div class="alert alert-warning">
+                <strong>Invalid login request</strong> — there are no login schemes configured for this request.
+            </div>
+        }
+
+        <p class="mg-auth-foot">Demo accounts: admin@medguard.local / operator@medguard.local — password Demo@123</p>
+    </div>
+</div>

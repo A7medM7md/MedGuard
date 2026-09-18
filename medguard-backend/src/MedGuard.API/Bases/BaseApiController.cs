@@ -1,10 +1,16 @@
 ﻿using MedGuard.Application.Common;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Net;
 
 namespace MedGuard.Api.Bases
 {
+    // Every endpoint requires a valid access token carrying the "medguard.api" scope
+    // by default. Endpoints meant for unauthenticated callers (e.g. device heartbeat)
+    // opt out explicitly with [AllowAnonymous] rather than the other way around —
+    // "secure by default" beats remembering to lock down each new controller.
     [ApiController]
+    [Authorize(Policy = "ApiScope")]
     public class BaseApiController : ControllerBase
     {
         public ObjectResult NewResult<T>(Response<T> response)
