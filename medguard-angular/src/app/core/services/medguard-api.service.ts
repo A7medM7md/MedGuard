@@ -9,6 +9,7 @@ import {
   Batch,
   BatchDto,
   Device,
+  DeviceDto,
   Shipment,
 } from '../models/medguard.models';
 import { MOCK_ALERTS, MOCK_BATCHES, MOCK_DEVICES, MOCK_SHIPMENTS } from '../mock-data';
@@ -150,10 +151,52 @@ export class MedGuardApiService {
     if (environment.useDummyData) {
       return of(MOCK_DEVICES).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // No DeviceController exists yet on the backend — SensorReading currently
-    // carries a bare DeviceId string, not a full Device entity. Add a Device
-    // entity + DevicesController server-side before wiring this one up.
-    return of(MOCK_DEVICES);
+    return this.http
+      .get<ApiResponse<DeviceDto[]>>(`${this.baseUrl}/devices`)
+      .pipe(map((res) => res.data.map(mapDeviceDto)));
+  }
+
+  registerDevice(deviceCode: string, model: string): Observable<Device> {
+    if (environment.useDummyData) {
+      const created: Device = {
+        id: deviceCode,
+        deviceCode,
+        model,
+        assignedBatchId: null,
+        assignedBatchNumber: null,
+        lastSeenAt: new Date().toISOString(),
+        batteryPct: 100,
+        signalPct: 100,
+        status: 'online',
+      };
+      MOCK_DEVICES.unshift(created);
+      return of(created).pipe(delay(DUMMY_LATENCY_MS));
+    }
+    return this.http
+      .post<ApiResponse<DeviceDto>>(`${this.baseUrl}/devices`, { deviceCode, model })
+      .pipe(map((res) => mapDeviceDto(res.data)));
+  }
+
+  assignDeviceToBatch(deviceId: string, batchId: string): Observable<Device> {
+    if (environment.useDummyData) {
+      const device = MOCK_DEVICES.find((d) => d.id === deviceId);
+      if (device) device.assignedBatchId = batchId;
+      return of(device as Device).pipe(delay(DUMMY_LATENCY_MS));
+    }
+    return this.http
+      .post<ApiResponse<DeviceDto>>(`${this.baseUrl}/devices/${deviceId}/assign/${batchId}`, {})
+      .pipe(map((res) => mapDeviceDto(res.data)));
+  }
+
+  unassignDevice(deviceId: string): Observable<Device> {
+    if (environment.useDummyData) {
+      const device = MOCK_DEVICES.find((d) => d.id === deviceId);
+      if (device) device.assignedBatchId = null;
+      return of(device as Device).pipe(delay(DUMMY_LATENCY_MS));
+    }
+    return this.http
+      .post<ApiResponse<DeviceDto>>(`${this.baseUrl}/devices/${deviceId}/unassign`, {})
+      .pipe(map((res) => mapDeviceDto(res.data)));
   }
 }
 
@@ -209,5 +252,25 @@ function mapAlertDto(dto: AlertDto): Alert {
     triggeredAt: dto.triggeredAtUtc,
     resolvedAt: dto.resolvedAtUtc,
     resolvedBy: dto.isResolved ? 'Resolved' : null,
+  };
+}
+
+const DEVICE_STATUS_MAP: Record<number, Device['status']> = {
+  0: 'online',
+  1: 'stale',
+  2: 'offline',
+};
+
+function mapDeviceDto(dto: DeviceDto): Device {
+  return {
+    id: dto.id,
+    deviceCode: dto.deviceCode,
+    model: dto.model,
+    assignedBatchId: dto.assignedBatchId,
+    assignedBatchNumber: dto.assignedBatchNumber,
+    lastSeenAt: dto.lastSeenAtUtc,
+    batteryPct: dto.batteryPercent,
+    signalPct: dto.signalPercent,
+    status: DEVICE_STATUS_MAP[dto.status],
   };
 }

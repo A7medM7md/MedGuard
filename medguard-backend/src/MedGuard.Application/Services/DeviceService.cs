@@ -23,7 +23,7 @@ public class DeviceService : ResponseHandler, IDeviceService
         await _uow.Devices.AddAsync(device, ct);
         await _uow.SaveChangesAsync(ct);
 
-        var result = ToDto(device);
+        var result = await ToDtoAsync(device, ct);
         return Success(result);
     }
 
@@ -36,7 +36,7 @@ public class DeviceService : ResponseHandler, IDeviceService
         _uow.Devices.Update(device);
         await _uow.SaveChangesAsync(ct);
 
-        var result = ToDto(device);
+        var result = await ToDtoAsync(device, ct);
         return Success(result);
     }
 
@@ -54,7 +54,7 @@ public class DeviceService : ResponseHandler, IDeviceService
         _uow.Devices.Update(device);
         await _uow.SaveChangesAsync(ct);
 
-        var result = ToDto(device);
+        var result = await ToDtoAsync(device, ct);
         return Success(result);
     }
 
@@ -67,7 +67,7 @@ public class DeviceService : ResponseHandler, IDeviceService
         _uow.Devices.Update(device);
         await _uow.SaveChangesAsync(ct);
 
-        var result = ToDto(device);
+        var result = await ToDtoAsync(device, ct);
         return Success(result);
     }
 
@@ -78,11 +78,29 @@ public class DeviceService : ResponseHandler, IDeviceService
         if (devices is null)
             return NotFound<List<DeviceDto>>();
 
-        var result = devices.Select(ToDto).ToList();
+        // Device only carries a bare AssignedBatchId (no EF navigation to Batch), so batch
+        // numbers are resolved with one bulk lookup here rather than a lookup per device.
+        var batches = await _uow.Batches.GetAllAsync(ct);
+        var batchNumbersById = batches.ToDictionary(b => b.Id, b => b.BatchNumber);
+
+        var result = devices
+            .Select(d => ToDto(d, d.AssignedBatchId.HasValue ? batchNumbersById.GetValueOrDefault(d.AssignedBatchId.Value) : null))
+            .ToList();
         return Success(result);
     }
 
-    private static DeviceDto ToDto(Device d) => new(
-        d.Id, d.DeviceCode, d.Model, d.AssignedBatchId, d.LastSeenAtUtc,
+    private async Task<DeviceDto> ToDtoAsync(Device d, CancellationToken ct)
+    {
+        string? batchNumber = null;
+        if (d.AssignedBatchId is { } batchId)
+        {
+            var batch = await _uow.Batches.GetByIdAsync(batchId, ct);
+            batchNumber = batch?.BatchNumber;
+        }
+        return ToDto(d, batchNumber);
+    }
+
+    private static DeviceDto ToDto(Device d, string? assignedBatchNumber) => new(
+        d.Id, d.DeviceCode, d.Model, d.AssignedBatchId, assignedBatchNumber, d.LastSeenAtUtc,
         d.BatteryPercent, d.SignalPercent, d.GetStatus());
 }

@@ -9,6 +9,7 @@ public record DeviceHeartbeatRequest(int BatteryPercent, int SignalPercent);
 public record DeviceDto(Guid Id, string DeviceCode,
     string Model,
     Guid? AssignedBatchId,
+    string? AssignedBatchNumber,
     DateTime LastSeenAtUtc,
     int BatteryPercent,
     int SignalPercent,

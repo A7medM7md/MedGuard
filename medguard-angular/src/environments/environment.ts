@@ -6,5 +6,6 @@ export const environment = {
    * AlertsController, ShipmentsController) is deployed and reachable.
    */
   useDummyData: false,
-  apiBaseUrl: 'https://localhost:7590/api',
+  // apiBaseUrl: 'https://localhost:7590/api',
+  apiBaseUrl: 'http://localhost:7591/api',
 };

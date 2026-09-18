@@ -294,6 +294,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
 export const MOCK_DEVICES: Device[] = [
   {
     id: 'SNS-A41-0092',
+    deviceCode: 'SNS-A41-0092',
     model: 'ColdTrace T4',
     assignedBatchId: 'b1',
     assignedBatchNumber: 'BX-2026-0417-A',
@@ -304,6 +305,7 @@ export const MOCK_DEVICES: Device[] = [
   },
   {
     id: 'SNS-C12-4477',
+    deviceCode: 'SNS-C12-4477',
     model: 'ColdTrace T4',
     assignedBatchId: 'b2',
     assignedBatchNumber: 'IG-2026-1183-C',
@@ -314,6 +316,7 @@ export const MOCK_DEVICES: Device[] = [
   },
   {
     id: 'SNS-B77-1130',
+    deviceCode: 'SNS-B77-1130',
     model: 'ColdTrace T4',
     assignedBatchId: 'b3',
     assignedBatchNumber: 'HB-2026-0044-B',
@@ -324,6 +327,7 @@ export const MOCK_DEVICES: Device[] = [
   },
   {
     id: 'SNS-H63-9987',
+    deviceCode: 'SNS-H63-9987',
     model: 'ColdTrace T3',
     assignedBatchId: null,
     assignedBatchNumber: null,
@@ -334,6 +338,7 @@ export const MOCK_DEVICES: Device[] = [
   },
   {
     id: 'SNS-J04-1120',
+    deviceCode: 'SNS-J04-1120',
     model: 'ColdTrace T3',
     assignedBatchId: null,
     assignedBatchNumber: null,
