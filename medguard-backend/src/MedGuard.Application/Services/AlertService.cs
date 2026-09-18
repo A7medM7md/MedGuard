@@ -17,7 +17,7 @@ public class AlertService : ResponseHandler, IAlertService
     public async Task<Response<List<AlertDto>>> GetUnresolvedAsync(CancellationToken ct = default)
     {
         var alerts = await _uow.Alerts.GetUnresolvedAsync(ct);
-        var dtos = alerts.Select(a => new AlertDto(a.Id, a.BatchId, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc)).ToList();
+        var dtos = alerts.Select(ToDto).ToList();
         return Success(dtos);
     }
 
@@ -30,7 +30,7 @@ public class AlertService : ResponseHandler, IAlertService
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var (items, totalCount) = await _uow.Alerts.GetPagedAsync(page, pageSize, severity, isResolved, ct);
-        var dtos = items.Select(a => new AlertDto(a.Id, a.BatchId, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc)).ToList();
+        var dtos = items.Select(ToDto).ToList();
 
         var result = new PagedResult<AlertDto>(dtos, page, pageSize, totalCount);
 
@@ -47,4 +47,8 @@ public class AlertService : ResponseHandler, IAlertService
         _uow.Alerts.Update(alert);
         await _uow.SaveChangesAsync(ct);
     }
+
+    private static AlertDto ToDto(Alert a) => new(
+        a.Id, a.BatchId, a.Batch?.BatchNumber ?? string.Empty, a.Batch?.DrugName ?? string.Empty,
+        a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc);
 }

@@ -68,7 +68,7 @@ public class BatchService : ResponseHandler, IBatchService
 
         var alerts = batch.Alerts
             .OrderByDescending(a => a.TriggeredAtUtc)
-            .Select(a => new AlertDto(a.Id, a.BatchId, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc))
+            .Select(a => new AlertDto(a.Id, a.BatchId, batch.BatchNumber, batch.DrugName, a.Severity, a.Message, a.TriggeredAtUtc, a.IsResolved, a.ResolvedAtUtc))
             .ToList();
 
         var shipments = batch.Shipments

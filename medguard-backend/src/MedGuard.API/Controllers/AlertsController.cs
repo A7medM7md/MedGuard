@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace MedGuard.API.Controllers;
 
+[ApiController]
+[Route("api/[controller]")]
 public class AlertsController : BaseApiController
 {
     private readonly IAlertService _alertService;

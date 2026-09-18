@@ -25,6 +25,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
 import { MapViewComponent, MapPinData } from '../../shared/components/map-view/map-view.component';
 import { DataTableComponent, ColumnDirective } from '../../shared/components/data-table/data-table.component';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 
 @Component({
   selector: 'mg-dashboard-page',
@@ -43,6 +44,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     DataTableComponent,
     ColumnDirective,
     StatusBadgeComponent,
+    ConfirmDialogComponent,
   ],
   template: `
     <div class="space-y-5">
@@ -179,6 +181,16 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
           </mg-data-table>
         </section>
       </ng-container>
+
+      <mg-confirm-dialog
+        [open]="pendingResolveAlert() !== null"
+        title="Resolve critical alert?"
+        [description]="confirmDescription()"
+        confirmLabel="Resolve alert"
+        [destructive]="true"
+        (confirm)="confirmResolve()"
+        (cancel)="cancelResolve()"
+      />
     </div>
   `,
 })
@@ -187,7 +199,7 @@ export class DashboardPageComponent implements OnInit {
   alerts = signal<Alert[]>([]);
   loading = signal(true);
   alertsLoading = signal(true);
-  resolvedIds = signal<string[]>([]);
+  pendingResolveAlert = signal<Alert | null>(null);
 
   batchStatusMeta = batchStatusMeta;
   readingLevelMeta = readingLevelMeta;
@@ -209,9 +221,11 @@ export class DashboardPageComponent implements OnInit {
   quarantinedCount = computed(() => this.batches().filter((b) => b.status === 'quarantined').length);
   recentBatches = computed(() => this.batches().slice(0, 6));
 
-  unresolvedAlerts = computed(() =>
-    this.alerts().filter((a) => !a.resolvedAt && !this.resolvedIds().includes(a.id)),
-  );
+  // getAlerts() already calls GET /alerts/unresolved — the server is the single
+  // source of truth for what's resolved, so no client-side masking is needed
+  // here (that was the bug: resolving only hid the row locally instead of
+  // persisting, so other pages still saw the alert as open).
+  unresolvedAlerts = computed(() => this.alerts());
   criticalAlertCount = computed(() => this.unresolvedAlerts().filter((a) => a.severity === 'critical').length);
   criticalAlertTone = computed(() =>
     this.criticalAlertCount() > 0 ? 'critical' : this.unresolvedAlerts().length > 0 ? 'warning' : 'none',
@@ -232,6 +246,13 @@ export class DashboardPageComponent implements OnInit {
     })),
   );
 
+  confirmDescription = computed(() => {
+    const a = this.pendingResolveAlert();
+    return a
+      ? `${a.batchNumber} · ${a.drugName}: "${a.message}" This can't be undone — the alert will be marked resolved across the app.`
+      : '';
+  });
+
   constructor(private api: MedGuardApiService, private router: Router) {}
 
   ngOnInit(): void {
@@ -246,8 +267,31 @@ export class DashboardPageComponent implements OnInit {
   }
 
   onResolve(alertId: string): void {
-    this.resolvedIds.update((ids) => [...ids, alertId]);
-    this.api.resolveAlert(alertId).subscribe();
+    const alert = this.alerts().find((a) => a.id === alertId);
+    if (!alert) return;
+
+    if (alert.severity === 'critical') {
+      this.pendingResolveAlert.set(alert);
+      return;
+    }
+    this.doResolve(alert);
+  }
+
+  confirmResolve(): void {
+    const alert = this.pendingResolveAlert();
+    if (!alert) return;
+    this.doResolve(alert);
+    this.pendingResolveAlert.set(null);
+  }
+
+  cancelResolve(): void {
+    this.pendingResolveAlert.set(null);
+  }
+
+  private doResolve(alert: Alert): void {
+    this.api.resolveAlert(alert.id).subscribe(() => {
+      this.alerts.update((alerts) => alerts.filter((a) => a.id !== alert.id));
+    });
   }
 
   goToBatch(batch: Batch): void {

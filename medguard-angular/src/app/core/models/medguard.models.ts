@@ -84,3 +84,36 @@ export interface Device {
   signalPct: number;
   status: DeviceStatus;
 }
+
+// ---------------------------------------------------------------------------
+// Raw shapes returned by MedGuard.API, as JSON (camelCase, int enums). Mapped
+// to the UI-facing interfaces above by medguard-api.service.ts — components
+// never see these directly.
+// ---------------------------------------------------------------------------
+
+/** BatchStatus enum on the server: Active=0, InTransit=1, Delivered=2, Quarantined=3, Recalled=4. */
+export interface BatchDto {
+  id: string;
+  batchNumber: string;
+  drugName: string;
+  manufacturerName: string;
+  quantityUnits: number;
+  manufacturedDateUtc: string;
+  expiryDateUtc: string;
+  minSafeTemperatureC: number;
+  maxSafeTemperatureC: number;
+  status: number;
+}
+
+/** AlertSeverity enum on the server: Info=0, Warning=1, Critical=2. */
+export interface AlertDto {
+  id: string;
+  batchId: string;
+  batchNumber: string;
+  drugName: string;
+  severity: number;
+  message: string;
+  triggeredAtUtc: string;
+  isResolved: boolean;
+  resolvedAtUtc: string | null;
+}

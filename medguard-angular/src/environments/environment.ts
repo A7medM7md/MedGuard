@@ -5,6 +5,6 @@ export const environment = {
    * MedGuard.API, Controllers: BatchesController, SensorReadingsController,
    * AlertsController, ShipmentsController) is deployed and reachable.
    */
-  useDummyData: true,
+  useDummyData: false,
   apiBaseUrl: 'https://localhost:7590/api',
 };

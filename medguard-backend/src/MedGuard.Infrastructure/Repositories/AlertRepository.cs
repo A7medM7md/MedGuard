@@ -12,12 +12,14 @@ public class AlertRepository : EfRepository<Alert>, IAlertRepository
 
     public async Task<IReadOnlyList<Alert>> GetUnresolvedAsync(CancellationToken ct = default) =>
         await Set.AsNoTracking()
+            .Include(a => a.Batch)
             .Where(a => !a.IsResolved)
             .OrderByDescending(a => a.TriggeredAtUtc)
             .ToListAsync(ct);
 
     public async Task<IReadOnlyList<Alert>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default) =>
         await Set.AsNoTracking()
+            .Include(a => a.Batch)
             .Where(a => a.BatchId == batchId)
             .OrderByDescending(a => a.TriggeredAtUtc)
             .ToListAsync(ct);
@@ -27,7 +29,7 @@ public class AlertRepository : EfRepository<Alert>, IAlertRepository
         bool? isResolved = null,
         CancellationToken ct = default)
     {
-        var query = Set.AsNoTracking().AsQueryable();
+        var query = Set.AsNoTracking().Include(a => a.Batch).AsQueryable();
 
         if (severity.HasValue)
             query = query.Where(a => a.Severity == severity.Value);

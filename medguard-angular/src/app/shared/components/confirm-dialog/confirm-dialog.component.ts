@@ -1,0 +1,47 @@
+import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { CommonModule } from '@angular/common';
+
+@Component({
+  selector: 'mg-confirm-dialog',
+  standalone: true,
+  imports: [CommonModule],
+  template: `
+    <div *ngIf="open" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        [attr.aria-label]="title"
+        class="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-overlay"
+      >
+        <h2 class="text-base font-semibold text-foreground">{{ title }}</h2>
+        <p class="mt-2 text-sm text-muted-foreground">{{ description }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            (click)="cancel.emit()"
+            class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            (click)="confirm.emit()"
+            class="rounded-md px-3 py-1.5 text-xs font-semibold text-white"
+            [ngClass]="destructive ? 'bg-critical' : 'bg-primary-600'"
+          >
+            {{ confirmLabel }}
+          </button>
+        </div>
+      </div>
+    </div>
+  `,
+})
+export class ConfirmDialogComponent {
+  @Input() open = false;
+  @Input() title = '';
+  @Input() description = '';
+  @Input() confirmLabel = 'Confirm';
+  @Input() destructive = false;
+  @Output() confirm = new EventEmitter<void>();
+  @Output() cancel = new EventEmitter<void>();
+}

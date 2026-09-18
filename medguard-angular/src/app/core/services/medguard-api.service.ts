@@ -2,7 +2,15 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, delay, map, of } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { Alert, ApiResponse, Batch, Device, Shipment } from '../models/medguard.models';
+import {
+  Alert,
+  AlertDto,
+  ApiResponse,
+  Batch,
+  BatchDto,
+  Device,
+  Shipment,
+} from '../models/medguard.models';
 import { MOCK_ALERTS, MOCK_BATCHES, MOCK_DEVICES, MOCK_SHIPMENTS } from '../mock-data';
 
 /** Simulated network latency so loading/skeleton states are visible in dummy mode. */
@@ -40,21 +48,21 @@ export class MedGuardApiService {
   // ------------------------------------------------------------------ Batches
 
   getBatches(): Observable<Batch[]> {
-    // if (environment.useDummyData) {
-    //   return of(MOCK_BATCHES).pipe(delay(DUMMY_LATENCY_MS));
-    // }
-    // REAL API: GET /api/batches -> BatchDto[]
-    return this.http.get<ApiResponse<Batch[]>>(`${this.baseUrl}/batches`).pipe(map(dtos => dtos.data));
-    // return of(MOCK_BATCHES); // fallback until wired
+    if (environment.useDummyData) {
+      return of(MOCK_BATCHES).pipe(delay(DUMMY_LATENCY_MS));
+    }
+    return this.http
+      .get<ApiResponse<BatchDto[]>>(`${this.baseUrl}/batches`)
+      .pipe(map((res) => res.data.map(mapBatchDto)));
   }
 
   getBatchById(id: string): Observable<Batch | undefined> {
     if (environment.useDummyData) {
       return of(MOCK_BATCHES.find((b) => b.id === id)).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // REAL API: GET /api/batches/{id} -> BatchDto
-    // return this.http.get<BatchDto>(`${this.baseUrl}/batches/${id}`).pipe(map(mapBatchDto));
-    return of(MOCK_BATCHES.find((b) => b.id === id));
+    return this.http
+      .get<ApiResponse<BatchDto>>(`${this.baseUrl}/batches/${id}`)
+      .pipe(map((res) => mapBatchDto(res.data)));
   }
 
   createBatch(payload: Partial<Batch>): Observable<Batch> {
@@ -98,9 +106,9 @@ export class MedGuardApiService {
     if (environment.useDummyData) {
       return of(MOCK_ALERTS).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // REAL API: GET /api/alerts/unresolved -> AlertDto[]  (add a GetAll endpoint server-side for the full log page)
-    // return this.http.get<AlertDto[]>(`${this.baseUrl}/alerts/unresolved`).pipe(map(dtos => dtos.map(mapAlertDto)));
-    return of(MOCK_ALERTS);
+    return this.http
+      .get<ApiResponse<AlertDto[]>>(`${this.baseUrl}/alerts/unresolved`)
+      .pipe(map((res) => res.data.map(mapAlertDto)));
   }
 
   resolveAlert(alertId: string): Observable<void> {
@@ -112,9 +120,7 @@ export class MedGuardApiService {
       }
       return of(undefined).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // REAL API: POST /api/alerts/{id}/resolve -> 204 No Content
-    // return this.http.post<void>(`${this.baseUrl}/alerts/${alertId}/resolve`, {});
-    return of(undefined);
+    return this.http.post<void>(`${this.baseUrl}/alerts/${alertId}/resolve`, {});
   }
 
   // --------------------------------------------------------------- Shipments
@@ -152,34 +158,56 @@ export class MedGuardApiService {
 }
 
 // ---------------------------------------------------------------------------
-// DTO mapping helpers (uncomment and use once real endpoints are wired).
-// Keeping the mapping in one place means components never see the server's
-// int-enum BatchStatus — they only ever see the string union used here.
+// DTO mapping helpers. Keeping the mapping in one place means components
+// never see the server's int-enum BatchStatus/AlertSeverity — they only ever
+// see the string unions used above.
 // ---------------------------------------------------------------------------
 
-// const BATCH_STATUS_MAP: Record<number, Batch['status']> = {
-//   0: 'active',
-//   1: 'in_transit',
-//   2: 'delivered',
-//   3: 'quarantined',
-//   4: 'recalled',
-// };
-//
-// function mapBatchDto(dto: BatchDto): Batch {
-//   return {
-//     id: dto.id,
-//     batchNumber: dto.batchNumber,
-//     drugName: dto.drugName,
-//     manufacturer: dto.manufacturerName,
-//     status: BATCH_STATUS_MAP[dto.status],
-//     minTempC: dto.minSafeTemperatureC,
-//     maxTempC: dto.maxSafeTemperatureC,
-//     quantity: dto.quantityUnits,
-//     unit: 'units',
-//     manufacturedAt: dto.manufacturedDateUtc,
-//     expiresAt: dto.expiryDateUtc,
-//     deviceId: '',
-//     lastReading: null, // fetch separately via SensorReadingsController if needed
-//     location: { lat: 0, lng: 0, label: '' }, // not modeled server-side yet
-//   };
-// }
+const BATCH_STATUS_MAP: Record<number, Batch['status']> = {
+  0: 'active',
+  1: 'in_transit',
+  2: 'delivered',
+  3: 'quarantined',
+  4: 'recalled',
+};
+
+// Server also has Info=0, which Batch.RecordReading never actually raises
+// (only Warning/Critical) — mapped to 'warning' defensively should it occur.
+const ALERT_SEVERITY_MAP: Record<number, Alert['severity']> = {
+  0: 'warning',
+  1: 'warning',
+  2: 'critical',
+};
+
+function mapBatchDto(dto: BatchDto): Batch {
+  return {
+    id: dto.id,
+    batchNumber: dto.batchNumber,
+    drugName: dto.drugName,
+    manufacturer: dto.manufacturerName,
+    status: BATCH_STATUS_MAP[dto.status],
+    minTempC: dto.minSafeTemperatureC,
+    maxTempC: dto.maxSafeTemperatureC,
+    quantity: dto.quantityUnits,
+    unit: 'units',
+    manufacturedAt: dto.manufacturedDateUtc,
+    expiresAt: dto.expiryDateUtc,
+    deviceId: '',
+    lastReading: null, // not exposed on the list DTO yet — fetch batch detail for full history
+    location: { lat: 0, lng: 0, label: '' }, // not modeled server-side yet
+  };
+}
+
+function mapAlertDto(dto: AlertDto): Alert {
+  return {
+    id: dto.id,
+    batchId: dto.batchId,
+    batchNumber: dto.batchNumber,
+    drugName: dto.drugName,
+    severity: ALERT_SEVERITY_MAP[dto.severity],
+    message: dto.message,
+    triggeredAt: dto.triggeredAtUtc,
+    resolvedAt: dto.resolvedAtUtc,
+    resolvedBy: dto.isResolved ? 'Resolved' : null,
+  };
+}

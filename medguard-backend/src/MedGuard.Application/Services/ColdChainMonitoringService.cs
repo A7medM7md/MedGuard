@@ -28,9 +28,15 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
 
         // All breach-evaluation, alert-raising and auto-quarantine logic lives inside the
         // aggregate now — this service just hands the reading to the batch and persists.
-        batch.RecordReading(reading);
+        var alert = batch.RecordReading(reading);
 
         await _uow.SensorReadings.AddAsync(reading, ct);
+        // Alert.Id is assigned client-side (BaseEntity generates it in its constructor), so
+        // if it's only reachable via batch.Alerts, EF's graph fixup sees a non-default key
+        // and assumes it already exists — tracking it as Modified instead of Added, which
+        // then fails as a no-op UPDATE. Adding it explicitly forces the correct Added state.
+        if (alert is not null)
+            await _uow.Alerts.AddAsync(alert, ct);
         await _uow.SaveChangesAsync(ct);
 
         var result = new SensorReadingDto(reading.Id, reading.BatchId, reading.DeviceId, reading.TemperatureC,
