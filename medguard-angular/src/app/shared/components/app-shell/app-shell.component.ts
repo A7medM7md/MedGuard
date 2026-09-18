@@ -9,6 +9,7 @@ import {
   LucideChevronsRight,
   LucideCpu,
   LucideLayoutDashboard,
+  LucideLogOut,
   LucideMoon,
   LucidePackage,
   LucideSearch,
@@ -18,6 +19,7 @@ import {
   LucideTruck,
 } from '@lucide/angular';
 import { MedGuardApiService } from '../../../core/services/medguard-api.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { IconRef } from '../../../core/icons';
 
 interface NavItem {
@@ -111,7 +113,9 @@ const NAV: NavItem[] = [
             />
           </div>
           <div class="flex items-center gap-2 sm:gap-3">
-            <span class="hidden text-xs font-semibold text-muted-foreground md:inline">Nordwest Pharma Logistics</span>
+            <span class="hidden text-xs font-semibold text-muted-foreground md:inline">
+              {{ auth.displayName }}<span *ngIf="auth.role"> · {{ auth.role }}</span>
+            </span>
             <button
               type="button"
               (click)="toggleDark()"
@@ -120,7 +124,16 @@ const NAV: NavItem[] = [
             >
               <svg [lucideIcon]="dark() ? Sun : Moon" class="h-4 w-4" aria-hidden="true"></svg>
             </button>
-            <span class="numeric inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-700 text-xs font-bold text-white">MO</span>
+            <button
+              type="button"
+              (click)="auth.logout()"
+              aria-label="Sign out"
+              title="Sign out"
+              class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+            >
+              <svg [lucideIcon]="LogOut" class="h-4 w-4" aria-hidden="true"></svg>
+            </button>
+            <span class="numeric inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-700 text-xs font-bold text-white">{{ initials() }}</span>
           </div>
         </header>
         <main class="min-w-0 flex-1 p-4 lg:p-6">
@@ -143,8 +156,17 @@ export class AppShellComponent implements OnInit {
   Search = LucideSearch;
   Sun = LucideSun;
   Moon = LucideMoon;
+  LogOut = LucideLogOut;
 
-  constructor(private api: MedGuardApiService) {}
+  constructor(private api: MedGuardApiService, public auth: AuthService) {}
+
+  initials(): string {
+    const parts = this.auth.displayName.trim().split(/\s+/);
+    return parts
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('') || '?';
+  }
 
   ngOnInit(): void {
     const stored = window.localStorage.getItem('medguard-theme');
