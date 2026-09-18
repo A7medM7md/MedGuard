@@ -7,10 +7,15 @@ import {
   AlertDto,
   ApiResponse,
   Batch,
+  BatchDetail,
+  BatchDetailDto,
   BatchDto,
   Device,
   DeviceDto,
+  Reading,
+  SensorReadingDto,
   Shipment,
+  ShipmentDto,
 } from '../models/medguard.models';
 import { MOCK_ALERTS, MOCK_BATCHES, MOCK_DEVICES, MOCK_SHIPMENTS } from '../mock-data';
 
@@ -87,18 +92,41 @@ export class MedGuardApiService {
       MOCK_BATCHES.unshift(created);
       return of(created).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // REAL API: POST /api/batches  (CreateBatchRequest -> BatchDto)
-    // return this.http.post<BatchDto>(`${this.baseUrl}/batches`, {
-    //   batchNumber: payload.batchNumber,
-    //   drugName: payload.drugName,
-    //   manufacturerName: payload.manufacturer,
-    //   quantityUnits: payload.quantity,
-    //   manufacturedDateUtc: payload.manufacturedAt,
-    //   expiryDateUtc: payload.expiresAt,
-    //   minSafeTemperatureC: payload.minTempC,
-    //   maxSafeTemperatureC: payload.maxTempC,
-    // }).pipe(map(mapBatchDto));
-    throw new Error('createBatch: wire to real API');
+    return this.http
+      .post<ApiResponse<BatchDto>>(`${this.baseUrl}/batches`, {
+        batchNumber: payload.batchNumber,
+        drugName: payload.drugName,
+        manufacturerName: payload.manufacturer,
+        quantityUnits: payload.quantity,
+        manufacturedDateUtc: payload.manufacturedAt,
+        expiryDateUtc: payload.expiresAt,
+        minSafeTemperatureC: payload.minTempC,
+        maxSafeTemperatureC: payload.maxTempC,
+      })
+      .pipe(map((res) => mapBatchDto(res.data)));
+  }
+
+  getBatchDetail(id: string): Observable<BatchDetail> {
+    return this.http.get<ApiResponse<BatchDetailDto>>(`${this.baseUrl}/batches/${id}/detail`).pipe(
+      map((res) => ({
+        batch: mapBatchDto(res.data.batch),
+        readings: res.data.recentReadings.map(mapReadingDto),
+        alerts: res.data.alerts.map(mapAlertDto),
+        shipments: res.data.shipments.map(mapShipmentDto),
+      })),
+    );
+  }
+
+  clearQuarantine(batchId: string): Observable<Batch> {
+    return this.http
+      .post<ApiResponse<BatchDto>>(`${this.baseUrl}/batches/${batchId}/clear-quarantine`, {})
+      .pipe(map((res) => mapBatchDto(res.data)));
+  }
+
+  recallBatch(batchId: string): Observable<Batch> {
+    return this.http
+      .post<ApiResponse<BatchDto>>(`${this.baseUrl}/batches/${batchId}/recall`, {})
+      .pipe(map((res) => mapBatchDto(res.data)));
   }
 
   // ------------------------------------------------------------------- Alerts
@@ -140,9 +168,31 @@ export class MedGuardApiService {
     if (environment.useDummyData) {
       return of(MOCK_SHIPMENTS.filter((s) => s.batchId === batchId)).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // REAL API: GET /api/shipments/batch/{batchId} -> ShipmentDto[]
-    // return this.http.get<ShipmentDto[]>(`${this.baseUrl}/shipments/batch/${batchId}`).pipe(map(dtos => dtos.map(mapShipmentDto)));
-    return of(MOCK_SHIPMENTS.filter((s) => s.batchId === batchId));
+    return this.http
+      .get<ApiResponse<ShipmentDto[]>>(`${this.baseUrl}/shipments/batch/${batchId}`)
+      .pipe(map((res) => res.data.map(mapShipmentDto)));
+  }
+
+  createShipment(payload: {
+    batchId: string;
+    origin: string;
+    destination: string;
+    courier?: string;
+  }): Observable<Shipment> {
+    return this.http
+      .post<ApiResponse<ShipmentDto>>(`${this.baseUrl}/shipments`, {
+        batchId: payload.batchId,
+        originLocation: payload.origin,
+        destinationLocation: payload.destination,
+        courierName: payload.courier || null,
+      })
+      .pipe(map((res) => mapShipmentDto(res.data)));
+  }
+
+  markShipmentDelivered(shipmentId: string): Observable<Shipment> {
+    return this.http
+      .post<ApiResponse<ShipmentDto>>(`${this.baseUrl}/shipments/${shipmentId}/deliver`, {})
+      .pipe(map((res) => mapShipmentDto(res.data)));
   }
 
   // ----------------------------------------------------------------- Devices
@@ -272,5 +322,38 @@ function mapDeviceDto(dto: DeviceDto): Device {
     batteryPct: dto.batteryPercent,
     signalPct: dto.signalPercent,
     status: DEVICE_STATUS_MAP[dto.status],
+  };
+}
+
+function mapReadingDto(dto: SensorReadingDto): Reading {
+  return {
+    id: dto.id,
+    batchId: dto.batchId,
+    deviceId: dto.deviceId,
+    temperatureC: dto.temperatureC,
+    humidityPct: dto.humidityPercent ?? 0,
+    lat: dto.latitude ?? 0,
+    lng: dto.longitude ?? 0,
+    recordedAt: dto.recordedAtUtc,
+  };
+}
+
+const SHIPMENT_STATUS_MAP: Record<number, Shipment['status']> = {
+  0: 'preparing',
+  1: 'in_transit',
+  2: 'delivered',
+  3: 'aborted',
+};
+
+function mapShipmentDto(dto: ShipmentDto): Shipment {
+  return {
+    id: dto.id,
+    batchId: dto.batchId,
+    origin: dto.originLocation,
+    destination: dto.destinationLocation,
+    courier: dto.courierName,
+    status: SHIPMENT_STATUS_MAP[dto.status],
+    departedAt: dto.departedAtUtc,
+    arrivedAt: dto.arrivedAtUtc,
   };
 }

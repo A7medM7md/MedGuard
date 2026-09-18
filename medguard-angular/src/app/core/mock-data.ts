@@ -231,63 +231,32 @@ export const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 's1',
     batchId: 'b2',
-    batchNumber: 'IG-2026-1183-C',
     origin: 'Sanofi Frankfurt Plant',
     destination: 'Berlin Central Pharmacy Depot',
     courier: 'ColdLine Logistics',
     status: 'in_transit',
     departedAt: iso(-3 * HOUR),
     arrivedAt: null,
-    legs: [
-      { label: 'Departed origin', at: iso(-3 * HOUR), detail: 'Sanofi Frankfurt Plant', done: true },
-      { label: 'Checkpoint — A3 near Frankfurt', at: iso(-18 * 60_000), detail: 'On schedule', done: true },
-      { label: 'Arrival', at: iso(2 * HOUR), detail: 'Berlin Central Pharmacy Depot', done: false },
-    ],
-    route: [
-      { lat: 50.1109, lng: 8.6821 },
-      { lat: 51.1657, lng: 10.4515 },
-      { lat: 52.52, lng: 13.405 },
-    ],
   },
   {
     id: 's2',
     batchId: 'b3',
-    batchNumber: 'HB-2026-0044-B',
     origin: 'Grifols Paris Facility',
     destination: 'Lyon University Hospital',
     courier: 'MedTrans Express',
     status: 'in_transit',
     departedAt: iso(-90 * 60_000),
     arrivedAt: null,
-    legs: [
-      { label: 'Departed origin', at: iso(-90 * 60_000), detail: 'Grifols Paris Facility', done: true },
-      { label: 'Checkpoint — Paris ring road', at: iso(-4 * 60_000), detail: 'On schedule', done: true },
-      { label: 'Arrival', at: iso(4 * HOUR), detail: 'Lyon University Hospital', done: false },
-    ],
-    route: [
-      { lat: 48.8566, lng: 2.3522 },
-      { lat: 47.5, lng: 4.0 },
-      { lat: 45.764, lng: 4.8357 },
-    ],
   },
   {
     id: 's3',
     batchId: 'b6',
-    batchNumber: 'RB-2025-9981-F',
     origin: 'Grifols Munich Facility',
     destination: 'Munich Regional Pharmacy',
     courier: 'ColdLine Logistics',
     status: 'delivered',
     departedAt: iso(-6 * DAY),
     arrivedAt: iso(-5 * DAY),
-    legs: [
-      { label: 'Departed origin', at: iso(-6 * DAY), detail: 'Grifols Munich Facility', done: true },
-      { label: 'Arrival', at: iso(-5 * DAY), detail: 'Munich Regional Pharmacy', done: true },
-    ],
-    route: [
-      { lat: 48.15, lng: 11.5 },
-      { lat: 48.1351, lng: 11.582 },
-    ],
   },
 ];
 

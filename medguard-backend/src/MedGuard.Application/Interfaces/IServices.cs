@@ -10,6 +10,8 @@ public interface IBatchService
     Task<Response<BatchDto?>> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<Response<BatchDetailDto>> GetDetailAsync(Guid id, CancellationToken ct = default);
     Task<Response<List<BatchDto>>> GetAllAsync(CancellationToken ct = default);
+    Task<Response<BatchDto>> ClearQuarantineAsync(Guid id, CancellationToken ct = default);
+    Task<Response<BatchDto>> RecallAsync(Guid id, CancellationToken ct = default);
 }
 
 public interface IColdChainMonitoringService

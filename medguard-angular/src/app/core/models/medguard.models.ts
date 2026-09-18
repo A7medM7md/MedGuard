@@ -1,6 +1,6 @@
 export type BatchStatus = 'active' | 'in_transit' | 'quarantined' | 'delivered' | 'recalled';
 export type AlertSeverity = 'critical' | 'warning';
-export type ShipmentStatus = 'scheduled' | 'in_transit' | 'delivered' | 'delayed';
+export type ShipmentStatus = 'preparing' | 'in_transit' | 'delivered' | 'aborted';
 export type DeviceStatus = 'online' | 'stale' | 'offline';
 
 // ApiResponse<T> is a generic interface that represents the structure of an API response. It contains a single property, data, which holds the actual data returned from the API. The type of data is determined by the generic type parameter T, allowing for flexibility in specifying the expected data type for different API responses.
@@ -53,25 +53,22 @@ export interface Alert {
   resolvedBy: string | null;
 }
 
-export interface ShipmentLeg {
-  label: string;
-  at: string;
-  detail: string;
-  done: boolean;
-}
-
 export interface Shipment {
   id: string;
   batchId: string;
-  batchNumber: string;
   origin: string;
   destination: string;
-  courier: string;
+  courier: string | null;
   status: ShipmentStatus;
   departedAt: string | null;
   arrivedAt: string | null;
-  legs: ShipmentLeg[];
-  route: { lat: number; lng: number }[];
+}
+
+export interface BatchDetail {
+  batch: Batch;
+  readings: Reading[];
+  alerts: Alert[];
+  shipments: Shipment[];
 }
 
 export interface Device {
@@ -132,4 +129,34 @@ export interface DeviceDto {
   batteryPercent: number;
   signalPercent: number;
   status: number;
+}
+
+export interface SensorReadingDto {
+  id: string;
+  batchId: string;
+  deviceId: string;
+  temperatureC: number;
+  humidityPercent: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  recordedAtUtc: string;
+}
+
+/** ShipmentStatus enum on the server: Preparing=0, InTransit=1, Delivered=2, Aborted=3. */
+export interface ShipmentDto {
+  id: string;
+  batchId: string;
+  originLocation: string;
+  destinationLocation: string;
+  courierName: string | null;
+  status: number;
+  departedAtUtc: string | null;
+  arrivedAtUtc: string | null;
+}
+
+export interface BatchDetailDto {
+  batch: BatchDto;
+  recentReadings: SensorReadingDto[];
+  alerts: AlertDto[];
+  shipments: ShipmentDto[];
 }

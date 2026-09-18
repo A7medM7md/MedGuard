@@ -23,12 +23,16 @@ import { StatusBadgeComponent } from '../status-badge/status-badge.component';
           <p class="numeric mt-1 text-2xs text-muted-foreground">{{ timeAgo(a.triggeredAt) }}</p>
         </div>
         <button
+          *ngIf="!a.resolvedAt"
           type="button"
           class="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-2xs font-semibold text-foreground hover:bg-muted"
           (click)="resolve.emit(a.id)"
         >
           Resolve
         </button>
+        <span *ngIf="a.resolvedAt" class="numeric shrink-0 text-2xs text-muted-foreground">
+          Resolved {{ timeAgo(a.resolvedAt) }}
+        </span>
       </li>
     </ul>
   `,

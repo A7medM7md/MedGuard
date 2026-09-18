@@ -36,4 +36,12 @@ public class BatchesController : BaseApiController
         var batch = await _batchService.CreateBatchAsync(request, ct);
         return NewResult(batch);
     }
+
+    [HttpPost("{id:guid}/clear-quarantine")]
+    public async Task<ActionResult<Response<BatchDto>>> ClearQuarantine(Guid id, CancellationToken ct) =>
+        NewResult(await _batchService.ClearQuarantineAsync(id, ct));
+
+    [HttpPost("{id:guid}/recall")]
+    public async Task<ActionResult<Response<BatchDto>>> Recall(Guid id, CancellationToken ct) =>
+        NewResult(await _batchService.RecallAsync(id, ct));
 }

@@ -37,10 +37,10 @@ export const alertSeverityMeta: Record<AlertSeverity, StatusMeta> = {
 };
 
 export const shipmentStatusMeta: Record<ShipmentStatus, StatusMeta> = {
-  scheduled: { label: 'Scheduled', tone: 'neutral', icon: LucideClock },
+  preparing: { label: 'Preparing', tone: 'neutral', icon: LucideClock },
   in_transit: { label: 'In Transit', tone: 'transit', icon: LucideTruck },
   delivered: { label: 'Delivered', tone: 'safe', icon: LucidePackageCheck },
-  delayed: { label: 'Delayed', tone: 'warning', icon: LucideAlertTriangle },
+  aborted: { label: 'Aborted', tone: 'critical', icon: LucideAlertTriangle },
 };
 
 export const deviceStatusMeta: Record<DeviceStatus, StatusMeta> = {

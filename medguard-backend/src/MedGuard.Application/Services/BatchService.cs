@@ -88,6 +88,30 @@ public class BatchService : ResponseHandler, IBatchService
         return Success(result, "Batches retrieved successfully.");
     }
 
+    public async Task<Response<BatchDto>> ClearQuarantineAsync(Guid id, CancellationToken ct = default)
+    {
+        var batch = await _uow.Batches.GetByIdAsync(id, ct)
+            ?? throw new NotFoundException(nameof(Batch), id);
+
+        batch.ClearQuarantine();
+        _uow.Batches.Update(batch);
+        await _uow.SaveChangesAsync(ct);
+
+        return Success(ToDto(batch), "Quarantine cleared.");
+    }
+
+    public async Task<Response<BatchDto>> RecallAsync(Guid id, CancellationToken ct = default)
+    {
+        var batch = await _uow.Batches.GetByIdAsync(id, ct)
+            ?? throw new NotFoundException(nameof(Batch), id);
+
+        batch.Recall();
+        _uow.Batches.Update(batch);
+        await _uow.SaveChangesAsync(ct);
+
+        return Success(ToDto(batch), "Batch recalled.");
+    }
+
     // SafeRange.MinC / SafeRange.MaxC replace the old flat MinSafeTemperatureC / MaxSafeTemperatureC
     // properties now that temperature bounds are a TemperatureRange value object on the entity.
     private static BatchDto ToDto(Batch b) => new(

@@ -1,23 +1,450 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import {
+  LucideDynamicIcon,
+  LucideArrowLeft,
+  LucideBan,
+  LucideCalendarClock,
+  LucideFactory,
+  LucidePackage,
+  LucidePackagePlus,
+  LucideShieldCheck,
+  LucideThermometer,
+} from '@lucide/angular';
 
-/**
- * PLACEHOLDER — next page to build. Following the same pattern as
- * DashboardPageComponent: inject MedGuardApiService, use signals for
- * loading/data state, reuse mg-data-table / mg-status-badge / mg-empty-state.
- */
+import { MedGuardApiService } from '../../core/services/medguard-api.service';
+import { Alert, Batch, BatchDetail, Reading, Shipment } from '../../core/models/medguard.models';
+import { batchStatusMeta, readingLevelMeta, shipmentStatusMeta, StatusMeta, toneText } from '../../core/status';
+import { daysUntil, formatDate, formatDateTime, readingLevel, timeAgo } from '../../core/format';
+
+import { DataTableComponent, ColumnDirective } from '../../shared/components/data-table/data-table.component';
+import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { AlertFeedComponent } from '../../shared/components/alert-feed/alert-feed.component';
+import { TemperatureChartComponent } from '../../shared/components/temperature-chart/temperature-chart.component';
+import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { SlideOverComponent } from '../../shared/components/slide-over/slide-over.component';
+
+interface ShipmentForm {
+  origin: string;
+  destination: string;
+  courier: string;
+}
+
+const EMPTY_SHIPMENT_FORM: ShipmentForm = { origin: '', destination: '', courier: '' };
+
 @Component({
   selector: 'mg-batch-detail-page',
   standalone: true,
-  imports: [CommonModule, PageHeaderComponent],
+  imports: [
+    CommonModule,
+    RouterLink,
+    FormsModule,
+    LucideDynamicIcon,
+    DataTableComponent,
+    ColumnDirective,
+    StatusBadgeComponent,
+    EmptyStateComponent,
+    AlertFeedComponent,
+    TemperatureChartComponent,
+    ConfirmDialogComponent,
+    SlideOverComponent,
+  ],
   template: `
     <div class="space-y-5">
-      <mg-page-header title="BatchDetail" description="Coming next — built the same way as the Dashboard page." />
-      <div class="rounded-lg border border-dashed border-border bg-card p-8 text-center shadow-card">
-        <p class="text-sm text-muted-foreground">This page is next in line to build.</p>
-      </div>
+      <a routerLink="/batches" class="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground">
+        <svg [lucideIcon]="ArrowLeft" class="h-3.5 w-3.5" aria-hidden="true"></svg> All batches
+      </a>
+
+      <div *ngIf="loading()" class="h-40 animate-pulse rounded-lg border border-border bg-card"></div>
+
+      <p *ngIf="error()" class="rounded-lg border border-critical-border bg-critical-bg/40 px-4 py-3 text-sm text-critical">
+        Could not load this batch. <button type="button" class="font-semibold underline" (click)="load()">Retry</button>
+      </p>
+
+      <ng-container *ngIf="!loading() && !error() && detail() as d">
+        <header
+          class="rounded-lg border border-l-4 border-border bg-card p-4 shadow-card"
+          [ngClass]="borderClass(d.batch.status)"
+        >
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+            <div class="min-w-0">
+              <h1 class="numeric truncate text-xl font-bold text-foreground">{{ d.batch.batchNumber }}</h1>
+              <p class="mt-0.5 truncate text-sm font-medium text-foreground">{{ d.batch.drugName }}</p>
+              <p class="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                <svg [lucideIcon]="Factory" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></svg>
+                {{ d.batch.manufacturer }}
+              </p>
+            </div>
+            <mg-status-badge [meta]="getBatchStatusMeta(d.batch)" size="lg" [pulse]="d.batch.status === 'quarantined'" />
+          </div>
+
+          <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+            <div class="rounded-md border border-border bg-muted/40 px-3 py-2">
+              <dt class="flex items-center gap-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                <svg [lucideIcon]="Thermometer" class="h-3.5 w-3.5" aria-hidden="true"></svg> Safe range
+              </dt>
+              <dd class="numeric mt-1 text-sm font-bold text-foreground">{{ d.batch.minTempC }} °C to {{ d.batch.maxTempC }} °C</dd>
+            </div>
+            <div class="rounded-md border border-border bg-muted/40 px-3 py-2">
+              <dt class="flex items-center gap-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                <svg [lucideIcon]="Thermometer" class="h-3.5 w-3.5" aria-hidden="true"></svg> Last reading
+              </dt>
+              <dd class="numeric mt-1 text-sm font-bold" [ngClass]="toneText[readingLevelMeta[currentLevel(d.batch)].tone]">
+                {{ latestReading(d) ? (latestReading(d)!.temperatureC | number: '1.1-1') + ' °C' : '—' }}
+              </dd>
+              <dd class="text-2xs text-muted-foreground">{{ latestReading(d) ? timeAgo(latestReading(d)!.recordedAt) : 'no data' }}</dd>
+            </div>
+            <div class="rounded-md border border-border bg-muted/40 px-3 py-2">
+              <dt class="flex items-center gap-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                <svg [lucideIcon]="Package" class="h-3.5 w-3.5" aria-hidden="true"></svg> Quantity
+              </dt>
+              <dd class="numeric mt-1 text-sm font-bold text-foreground">{{ d.batch.quantity | number }} {{ d.batch.unit }}</dd>
+            </div>
+            <div class="rounded-md border border-border bg-muted/40 px-3 py-2">
+              <dt class="flex items-center gap-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                <svg [lucideIcon]="CalendarClock" class="h-3.5 w-3.5" aria-hidden="true"></svg> Manufactured
+              </dt>
+              <dd class="numeric mt-1 text-sm font-bold text-foreground">{{ formatDate(d.batch.manufacturedAt) }}</dd>
+            </div>
+            <div class="rounded-md border border-border bg-muted/40 px-3 py-2">
+              <dt class="flex items-center gap-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                <svg [lucideIcon]="CalendarClock" class="h-3.5 w-3.5" aria-hidden="true"></svg> Expiry
+              </dt>
+              <dd class="numeric mt-1 text-sm font-bold" [ngClass]="expiringDays(d.batch) <= 30 ? 'text-warning' : 'text-foreground'">
+                {{ formatDate(d.batch.expiresAt) }}
+              </dd>
+              <dd class="text-2xs text-muted-foreground">{{ expiringDays(d.batch) }} days left</dd>
+            </div>
+          </dl>
+
+          <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+            <button
+              *ngIf="d.batch.status === 'quarantined'"
+              type="button"
+              [disabled]="actionPending()"
+              (click)="clearQuarantine(d.batch.id)"
+              class="inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            >
+              <svg [lucideIcon]="ShieldCheck" class="h-3.5 w-3.5" aria-hidden="true"></svg> Clear quarantine
+            </button>
+            <button
+              type="button"
+              [disabled]="d.batch.status === 'recalled' || actionPending()"
+              (click)="confirmRecall.set(true)"
+              class="inline-flex items-center gap-1.5 rounded-md border border-critical-border bg-critical-bg px-3 py-1.5 text-xs font-semibold text-critical disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <svg [lucideIcon]="Ban" class="h-3.5 w-3.5" aria-hidden="true"></svg> Recall batch
+            </button>
+            <span [title]="isBlocked(d.batch) ? 'Quarantined or recalled batches cannot be shipped' : ''">
+              <button
+                type="button"
+                [disabled]="isBlocked(d.batch)"
+                (click)="openShipment()"
+                class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <svg [lucideIcon]="PackagePlus" class="h-3.5 w-3.5" aria-hidden="true"></svg> Create shipment
+              </button>
+            </span>
+            <p *ngIf="isBlocked(d.batch)" class="self-center text-2xs text-muted-foreground">
+              Shipping is blocked while this batch is {{ getBatchStatusMeta(d.batch).label.toLowerCase() }}.
+            </p>
+          </div>
+        </header>
+
+        <mg-temperature-chart [readings]="d.readings" [minTempC]="d.batch.minTempC" [maxTempC]="d.batch.maxTempC" [height]="260" />
+
+        <div class="grid gap-5 xl:grid-cols-2">
+          <section class="rounded-lg border border-border bg-card shadow-card">
+            <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-foreground">Alert history</h2>
+            <mg-alert-feed *ngIf="d.alerts.length" [alerts]="d.alerts" (resolve)="onResolve($event)" />
+            <mg-empty-state
+              *ngIf="!d.alerts.length"
+              [icon]="ShieldCheck"
+              title="No alerts on record"
+              description="This batch has stayed inside its approved temperature range for its entire tracked lifetime."
+            />
+          </section>
+
+          <section class="rounded-lg border border-border bg-card shadow-card">
+            <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-foreground">Shipment history</h2>
+            <ul *ngIf="d.shipments.length" class="divide-y divide-border">
+              <li *ngFor="let s of d.shipments" class="flex items-start gap-3 px-4 py-3">
+                <mg-status-badge [meta]="shipmentStatusMeta[s.status]" size="sm" />
+                <div class="min-w-0 flex-1">
+                  <p class="text-xs font-semibold text-foreground">{{ s.origin }} → {{ s.destination }}</p>
+                  <p class="mt-0.5 text-2xs text-muted-foreground">{{ s.courier || 'No courier set' }}</p>
+                  <p class="numeric mt-1 text-2xs text-muted-foreground">
+                    {{ s.departedAt ? 'Departed ' + timeAgo(s.departedAt) : 'Not yet departed' }}
+                    <ng-container *ngIf="s.arrivedAt"> · Arrived {{ timeAgo(s.arrivedAt) }}</ng-container>
+                  </p>
+                </div>
+                <button
+                  *ngIf="s.status === 'in_transit'"
+                  type="button"
+                  [disabled]="actionPending()"
+                  (click)="markDelivered(s)"
+                  class="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-2xs font-semibold text-foreground hover:bg-muted disabled:opacity-60"
+                >
+                  Mark delivered
+                </button>
+              </li>
+            </ul>
+            <mg-empty-state
+              *ngIf="!d.shipments.length"
+              [icon]="PackagePlus"
+              title="Not shipped yet"
+              description="This batch is still in storage. Create a shipment to start tracking it in transit."
+            />
+          </section>
+        </div>
+
+        <section>
+          <h2 class="mb-2 text-sm font-semibold text-foreground">Sensor reading log</h2>
+          <mg-data-table *ngIf="d.readings.length" [rows]="reversedReadings(d)" [pageSize]="12">
+            <ng-template mgColumn header="Device ID" let-r>
+              <span class="numeric text-xs">{{ r.deviceId }}</span>
+            </ng-template>
+            <ng-template mgColumn header="Temp" align="right" let-r>
+              <span class="numeric text-sm font-bold" [ngClass]="toneText[readingLevelMeta[readingLevel(d.batch, r)].tone]">
+                {{ r.temperatureC | number: '1.1-1' }} °C
+              </span>
+            </ng-template>
+            <ng-template mgColumn header="Humidity" align="right" let-r>
+              <span class="numeric text-xs">{{ r.humidityPct | number: '1.1-1' }} %</span>
+            </ng-template>
+            <ng-template mgColumn header="Lat / Lng" let-r>
+              <span class="numeric text-xs text-muted-foreground">{{ r.lat | number: '1.4-4' }}, {{ r.lng | number: '1.4-4' }}</span>
+            </ng-template>
+            <ng-template mgColumn header="Recorded At" let-r>
+              <span class="numeric text-xs text-muted-foreground">{{ formatDateTime(r.recordedAt) }}</span>
+            </ng-template>
+          </mg-data-table>
+          <div *ngIf="!d.readings.length" class="rounded-lg border border-border bg-card shadow-card">
+            <mg-empty-state [icon]="Thermometer" title="No readings yet" description="This batch hasn't received any sensor telemetry yet." />
+          </div>
+        </section>
+      </ng-container>
+
+      <mg-confirm-dialog
+        [open]="confirmRecall()"
+        [title]="'Recall ' + (detail()?.batch?.batchNumber ?? '') + '?'"
+        description="Recalling permanently marks every unit of this batch as unusable. This cannot be undone."
+        confirmLabel="Recall batch"
+        [destructive]="true"
+        (confirm)="recall()"
+        (cancel)="confirmRecall.set(false)"
+      />
+
+      <mg-slide-over [open]="shipmentOpen()" title="Create shipment" subtitle="Start tracking a cold-chain leg" (close)="closeShipment()">
+        <form (ngSubmit)="submitShipment()" class="space-y-5" novalidate>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Origin <span class="text-critical">*</span></label>
+            <input [(ngModel)]="shipmentForm.origin" name="origin" placeholder="Frankfurt Central DC" class="w-full rounded-md border border-border bg-background px-3 py-2 text-xs" />
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Destination <span class="text-critical">*</span></label>
+            <input [(ngModel)]="shipmentForm.destination" name="destination" placeholder="CHU Lille Pharmacy" class="w-full rounded-md border border-border bg-background px-3 py-2 text-xs" />
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Courier</label>
+            <input [(ngModel)]="shipmentForm.courier" name="courier" placeholder="ColdRun Logistics" class="w-full rounded-md border border-border bg-background px-3 py-2 text-xs" />
+          </div>
+
+          <p *ngIf="shipmentFormError()" class="text-xs text-critical">{{ shipmentFormError() }}</p>
+
+          <div class="flex justify-end gap-2">
+            <button type="button" (click)="closeShipment()" class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted">
+              Cancel
+            </button>
+            <button type="submit" [disabled]="actionPending()" class="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">
+              {{ actionPending() ? 'Creating…' : 'Create shipment' }}
+            </button>
+          </div>
+        </form>
+      </mg-slide-over>
     </div>
   `,
 })
-export class BatchDetailPageComponent {}
+export class BatchDetailPageComponent implements OnInit {
+  detail = signal<BatchDetail | null>(null);
+  loading = signal(true);
+  error = signal(false);
+  actionPending = signal(false);
+
+  confirmRecall = signal(false);
+  shipmentOpen = signal(false);
+  shipmentFormError = signal<string | null>(null);
+  shipmentForm: ShipmentForm = { ...EMPTY_SHIPMENT_FORM };
+
+  batchStatusMeta = batchStatusMeta;
+  shipmentStatusMeta = shipmentStatusMeta;
+  readingLevelMeta = readingLevelMeta;
+  toneText = toneText;
+  readingLevel = readingLevel;
+  timeAgo = timeAgo;
+  formatDate = formatDate;
+  formatDateTime = formatDateTime;
+  daysUntil = daysUntil;
+
+  ArrowLeft = LucideArrowLeft;
+  Ban = LucideBan;
+  CalendarClock = LucideCalendarClock;
+  Factory = LucideFactory;
+  Package = LucidePackage;
+  PackagePlus = LucidePackagePlus;
+  ShieldCheck = LucideShieldCheck;
+  Thermometer = LucideThermometer;
+
+  private batchId = '';
+
+  constructor(private route: ActivatedRoute, private api: MedGuardApiService) {}
+
+  ngOnInit(): void {
+    this.batchId = this.route.snapshot.paramMap.get('batchId') ?? '';
+    this.load();
+  }
+
+  load(): void {
+    this.loading.set(true);
+    this.error.set(false);
+    this.api.getBatchDetail(this.batchId).subscribe({
+      next: (detail) => {
+        this.detail.set(detail);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.error.set(true);
+        this.loading.set(false);
+      },
+    });
+  }
+
+  getBatchStatusMeta(batch: Batch): StatusMeta {
+    return batchStatusMeta[batch.status];
+  }
+
+  borderClass(status: Batch['status']): string {
+    const map: Record<Batch['status'], string> = {
+      active: 'border-l-safe',
+      in_transit: 'border-l-transit',
+      quarantined: 'border-l-critical',
+      delivered: 'border-l-safe',
+      recalled: 'border-l-neutralst',
+    };
+    return map[status];
+  }
+
+  latestReading(d: BatchDetail): Reading | null {
+    return d.readings.length ? d.readings[0] : null;
+  }
+
+  reversedReadings(d: BatchDetail): Reading[] {
+    return [...d.readings].reverse();
+  }
+
+  currentLevel(batch: Batch): 'safe' | 'warning' | 'critical' {
+    const d = this.detail();
+    return readingLevel(batch, d ? this.latestReading(d) : null);
+  }
+
+  expiringDays(batch: Batch): number {
+    return daysUntil(batch.expiresAt);
+  }
+
+  isBlocked(batch: Batch): boolean {
+    return batch.status === 'quarantined' || batch.status === 'recalled';
+  }
+
+  clearQuarantine(batchId: string): void {
+    this.actionPending.set(true);
+    this.api.clearQuarantine(batchId).subscribe({
+      next: (batch) => {
+        this.detail.update((d) => (d ? { ...d, batch } : d));
+        this.actionPending.set(false);
+      },
+      error: () => this.actionPending.set(false),
+    });
+  }
+
+  recall(): void {
+    this.confirmRecall.set(false);
+    this.actionPending.set(true);
+    this.api.recallBatch(this.batchId).subscribe({
+      next: (batch) => {
+        this.detail.update((d) => (d ? { ...d, batch } : d));
+        this.actionPending.set(false);
+      },
+      error: () => this.actionPending.set(false),
+    });
+  }
+
+  onResolve(alertId: string): void {
+    this.api.resolveAlert(alertId).subscribe(() => {
+      this.detail.update((d) => {
+        if (!d) return d;
+        const alerts: Alert[] = d.alerts.map((a) =>
+          a.id === alertId ? { ...a, resolvedAt: new Date().toISOString(), resolvedBy: 'You' } : a,
+        );
+        return { ...d, alerts };
+      });
+    });
+  }
+
+  openShipment(): void {
+    this.shipmentForm = { ...EMPTY_SHIPMENT_FORM };
+    this.shipmentFormError.set(null);
+    this.shipmentOpen.set(true);
+  }
+
+  closeShipment(): void {
+    this.shipmentOpen.set(false);
+  }
+
+  submitShipment(): void {
+    const origin = this.shipmentForm.origin.trim();
+    const destination = this.shipmentForm.destination.trim();
+    if (origin.length < 2 || destination.length < 2) {
+      this.shipmentFormError.set('Origin and destination are both required.');
+      return;
+    }
+
+    this.shipmentFormError.set(null);
+    this.actionPending.set(true);
+    this.api
+      .createShipment({
+        batchId: this.batchId,
+        origin,
+        destination,
+        courier: this.shipmentForm.courier.trim() || undefined,
+      })
+      .subscribe({
+        next: (shipment) => {
+          this.detail.update((d) => (d ? { ...d, shipments: [shipment, ...d.shipments], batch: { ...d.batch, status: 'in_transit' } } : d));
+          this.actionPending.set(false);
+          this.closeShipment();
+        },
+        error: () => {
+          this.actionPending.set(false);
+          this.shipmentFormError.set('Could not create shipment. The batch may no longer be shippable.');
+        },
+      });
+  }
+
+  markDelivered(shipment: Shipment): void {
+    this.actionPending.set(true);
+    this.api.markShipmentDelivered(shipment.id).subscribe({
+      next: (updated) => {
+        this.detail.update((d) => {
+          if (!d) return d;
+          const shipments = d.shipments.map((s) => (s.id === updated.id ? updated : s));
+          return { ...d, shipments };
+        });
+        this.actionPending.set(false);
+      },
+      error: () => this.actionPending.set(false),
+    });
+  }
+}
