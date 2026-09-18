@@ -15,8 +15,9 @@ A cold-chain monitoring platform built with **ASP.NET Core**, **EF Core**, **SQL
 ![Signals](https://img.shields.io/badge/Angular-Zoneless%20%2B%20Signals-dd0031)
 ![Tailwind](https://img.shields.io/badge/TailwindCSS-UI-38bdf8)
 
-**Status:** Backend API and core domain logic are complete and running against a real
-database. Angular Dashboard and Devices pages are fully wired to it. Batches, Alerts,
+**Status:** Backend API, core domain logic, and OAuth2/OIDC auth (Duende IdentityServer)
+are complete and running end-to-end. Angular Dashboard, Batches, Batch Detail, and
+Devices pages are fully wired to the real, authenticated API. Alerts (full log),
 Shipments, Monitoring and Settings pages are scaffolded and in progress. See
 [Roadmap](#-roadmap) for the event-driven microservices phase planned after the
 frontend is finished.
@@ -174,6 +175,7 @@ handles at scale — see [Roadmap](#-roadmap).
 | Backend | ASP.NET Core (.NET 8) |
 | Architecture | Clean Architecture (Domain / Application / Infrastructure / API) |
 | Database | SQL Server (EF Core, code-first migrations) |
+| Identity | Duende IdentityServer — OAuth2/OIDC, Authorization Code + PKCE |
 | Frontend | Angular 22 — standalone components, zoneless change detection, signals |
 | Styling | Tailwind CSS |
 | Icons | Lucide |
@@ -182,13 +184,52 @@ handles at scale — see [Roadmap](#-roadmap).
 
 ---
 
-# 🔒 Security — current state
+# 🔒 Security
 
-There is no authentication/authorization scheme wired up yet — every endpoint is
-currently open, and CORS is fully permissive for local development. This is a known
-gap, not an oversight: production-grade auth (OIDC), rate limiting and secrets
-management are the security items in the [Roadmap](#-roadmap) below, sequenced after
-the frontend is complete rather than bolted on early and reworked later.
+MedGuard.API is an OAuth2 resource server: every endpoint requires a valid JWT
+access token (checked at `BaseApiController` level, so new controllers are locked
+down by default rather than by remembering to add `[Authorize]`), except ones
+explicitly opted out with `[AllowAnonymous]` — currently just the device heartbeat
+endpoint, which a physical sensor gateway calls and will get its own per-device key
+scheme later.
+
+**MedGuard.IdentityServer** — a Duende IdentityServer instance, run as its own
+ASP.NET Core project — issues the tokens:
+- Angular authenticates via **Authorization Code + PKCE**, the only OIDC flow
+  considered safe for a browser-based SPA (no client secret embedded in JS)
+- A separate `client_credentials` client exists for service-to-service calls
+  (health checks, and later an IoT gateway's own service account)
+- Two seeded demo accounts for now (`admin@medguard.local` / `operator@medguard.local`,
+  password `Demo@123`) via Duende's in-memory test-user store — not a real user
+  database yet; see [Roadmap](#-roadmap)
+
+Rate limiting and secrets management (beyond `appsettings.json`) are still open
+items — see [Roadmap](#-roadmap).
+
+---
+
+# ▶️ Running Locally
+
+Three processes, in this order:
+
+```bash
+# 1. IdentityServer (issues tokens) — https://localhost:5001
+cd medguard-backend/src/MedGuard.IdentityServer && dotnet run
+
+# 2. API (resource server) — http://localhost:7591
+cd medguard-backend/src/MedGuard.API && dotnet run --urls "http://localhost:7591"
+
+# 3. Angular app — http://localhost:4200
+cd medguard-angular && npm install && npm start
+```
+
+Opening `http://localhost:4200` redirects straight to IdentityServer's login page.
+Demo accounts (seeded test users, not a real user database yet):
+
+| Username | Password | Role |
+|---|---|---|
+| `admin@medguard.local` | `Demo@123` | Admin |
+| `operator@medguard.local` | `Demo@123` | Operator |
 
 ---
 
@@ -270,7 +311,9 @@ Gateway (YARP)                  — API composition + auth at the edge
 - Prometheus + Grafana dashboards
 
 ### 5. Production-grade security
-- OAuth2/OIDC (Keycloak or Duende IdentityServer)
+- ✅ OAuth2/OIDC via Duende IdentityServer (Authorization Code + PKCE) — done
+- Replace the seeded test-user store with a real persistent user store
+  (ASP.NET Core Identity) plus self-service registration
 - Rate limiting at the Gateway
 - Proper secrets management
 

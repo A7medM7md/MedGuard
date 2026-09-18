@@ -1,0 +1,36 @@
+@page
+@model MedGuard.IdentityServer.Pages.Logout.LoggedOut
+
+<div class="mg-auth-shell">
+    <div class="mg-auth-card">
+        <div class="mg-auth-logo">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+                <path d="m9 12 2 2 4-4" />
+            </svg>
+            <h1>You're signed out</h1>
+        </div>
+
+        @if (Model.View.PostLogoutRedirectUri != null)
+        {
+            <p class="mg-auth-foot" style="margin-top: 0;">
+                <a class="PostLogoutRedirectUri btn btn-primary" style="display: block; width: 100%; text-decoration: none;" href="@Model.View.PostLogoutRedirectUri">
+                    Return to @Model.View.ClientName
+                </a>
+            </p>
+        }
+
+        @if (Model.View.SignOutIframeUrl != null)
+        {
+            <iframe width="0" height="0" class="signout" src="@Model.View.SignOutIframeUrl"></iframe>
+        }
+    </div>
+</div>
+
+@section scripts
+{
+    @if (Model.View.AutomaticRedirectAfterSignOut)
+    {
+        <script src="~/js/signout-redirect.js"></script>
+    }
+}
