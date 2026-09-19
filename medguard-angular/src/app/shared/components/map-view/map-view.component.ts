@@ -25,9 +25,7 @@ const TONE_HEX: Record<StatusTone, string> = {
   selector: 'mg-map-view',
   standalone: true,
   imports: [CommonModule],
-  template: `<div class="mg-map overflow-hidden rounded-md border border-border" [style.height.px]="height">
-    <div #mapEl class="h-full w-full"></div>
-  </div>`,
+  templateUrl: './map-view.component.html',
 })
 export class MapViewComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() pins: MapPinData[] = [];

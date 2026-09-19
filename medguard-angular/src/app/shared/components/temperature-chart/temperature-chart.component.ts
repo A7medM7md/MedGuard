@@ -1,7 +1,7 @@
 import { Component, Input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideDynamicIcon, LucideThermometer } from '@lucide/angular';
-import { Reading } from '../../../core/models/medguard.models';
+import { Reading } from '../../../core/models';
 import { formatClock, formatDateTime } from '../../../core/format';
 
 type RangeKey = '1h' | '24h' | '7d' | 'all';
@@ -28,58 +28,7 @@ const PAD = 8;
   selector: 'mg-temperature-chart',
   standalone: true,
   imports: [CommonModule, LucideDynamicIcon],
-  template: `
-    <section class="rounded-lg border border-border bg-card p-4 shadow-card">
-      <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <h2 class="flex items-center gap-2 text-base font-semibold text-foreground">
-            <svg [lucideIcon]="Thermometer" class="h-4 w-4 shrink-0 text-critical" aria-hidden="true"></svg>
-            Temperature history
-          </h2>
-          <p class="mt-0.5 text-xs text-muted-foreground">
-            Shaded band is the approved safe range
-            <span class="numeric font-semibold text-foreground">{{ minTempC }}–{{ maxTempC }} °C</span>
-          </p>
-        </div>
-        <div class="flex rounded-md border border-border p-0.5" role="group" aria-label="Time range">
-          <button
-            *ngFor="let r of ranges"
-            type="button"
-            (click)="range.set(r.key)"
-            [attr.aria-pressed]="range() === r.key"
-            class="rounded-sm px-2 py-1 text-2xs font-semibold"
-            [ngClass]="range() === r.key ? 'bg-primary-600 text-white' : 'text-muted-foreground hover:text-foreground'"
-          >
-            {{ r.label }}
-          </button>
-        </div>
-      </header>
-
-      <div *ngIf="filteredReadings.length < 2" class="flex items-center justify-center text-xs text-muted-foreground" [style.height.px]="height">
-        Not enough readings yet to draw a chart.
-      </div>
-
-      <svg
-        *ngIf="filteredReadings.length >= 2"
-        [attr.viewBox]="'0 0 ' + viewW + ' ' + viewH"
-        preserveAspectRatio="none"
-        [style.height.px]="height"
-        class="w-full"
-      >
-        <rect [attr.x]="PAD" [attr.y]="bandY2" [attr.width]="viewW - PAD * 2" [attr.height]="bandY1 - bandY2" fill="var(--safe)" fill-opacity="0.08" />
-        <line [attr.x1]="PAD" [attr.x2]="viewW - PAD" [attr.y1]="bandY1" [attr.y2]="bandY1" stroke="var(--safe)" stroke-dasharray="4 4" stroke-opacity="0.7" />
-        <line [attr.x1]="PAD" [attr.x2]="viewW - PAD" [attr.y1]="bandY2" [attr.y2]="bandY2" stroke="var(--safe)" stroke-dasharray="4 4" stroke-opacity="0.7" />
-        <path [attr.d]="linePath" fill="none" stroke="var(--critical)" stroke-width="2" vector-effect="non-scaling-stroke" />
-      </svg>
-
-      <div *ngIf="filteredReadings.length >= 2" class="mt-1 flex justify-between text-2xs text-muted-foreground">
-        <span class="numeric" [title]="fullTimestamp(filteredReadings[0])">{{ clock(filteredReadings[0]) }}</span>
-        <span class="numeric" [title]="fullTimestamp(filteredReadings[filteredReadings.length - 1])">
-          {{ clock(filteredReadings[filteredReadings.length - 1]) }}
-        </span>
-      </div>
-    </section>
-  `,
+  templateUrl: './temperature-chart.component.html',
 })
 export class TemperatureChartComponent {
   @Input({ required: true }) readings: Reading[] = [];

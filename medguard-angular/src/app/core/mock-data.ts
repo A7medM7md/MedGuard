@@ -1,4 +1,4 @@
-import { Alert, Batch, Device, Shipment } from './models/medguard.models';
+import { Alert, Batch, Device, Shipment } from './models';
 
 /** Fixed reference "now" so relative times in the dummy data stay sensible. */
 export const NOW = Date.now();
@@ -7,8 +7,9 @@ const DAY = 24 * HOUR;
 const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
 
 // ---------------------------------------------------------------------------
-// DUMMY DATA — replace by wiring MedGuardApiService to the real .NET API.
-// See core/services/medguard-api.service.ts for exactly what to swap.
+// DUMMY DATA — used only when environment.useDummyData is true. See
+// core/services/batch.service.ts, alert.service.ts, shipment.service.ts and
+// device.service.ts for how each one maps the real .NET API's DTOs instead.
 // ---------------------------------------------------------------------------
 
 export const MOCK_BATCHES: Batch[] = [

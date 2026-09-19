@@ -1,0 +1,123 @@
+<div class="space-y-4">
+  <mg-page-header title="Alerts" description="Complete cold-chain alert log with resolution audit trail." />
+
+  <p *ngIf="error()" class="rounded-lg border border-critical-border bg-critical-bg/40 px-4 py-3 text-sm text-critical">
+    Could not load alerts. <button type="button" class="font-semibold underline" (click)="load()">Retry</button>
+  </p>
+
+  <div class="flex flex-wrap items-center gap-2">
+    <div class="flex items-center gap-1.5" role="group" aria-label="Severity">
+      <span class="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">Severity</span>
+      <button
+        *ngFor="let f of severityFilters"
+        type="button"
+        (click)="severity.set(f.key)"
+        [attr.aria-pressed]="severity() === f.key"
+        class="rounded-sm border px-2.5 py-1.5 text-2xs font-semibold"
+        [ngClass]="severity() === f.key ? 'border-primary-600 bg-primary-100 text-primary-900' : 'border-border bg-card text-muted-foreground hover:text-foreground'"
+      >
+        {{ f.label }}
+      </button>
+    </div>
+    <div class="flex items-center gap-1.5" role="group" aria-label="State">
+      <span class="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">State</span>
+      <button
+        *ngFor="let f of stateFilters"
+        type="button"
+        (click)="state.set(f.key)"
+        [attr.aria-pressed]="state() === f.key"
+        class="rounded-sm border px-2.5 py-1.5 text-2xs font-semibold"
+        [ngClass]="state() === f.key ? 'border-primary-600 bg-primary-100 text-primary-900' : 'border-border bg-card text-muted-foreground hover:text-foreground'"
+      >
+        {{ f.label }}
+      </button>
+    </div>
+
+    <button
+      *ngIf="selected().length > 0"
+      type="button"
+      (click)="resolveSelected()"
+      class="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 py-1.5 text-2xs font-semibold text-white"
+    >
+      <svg [lucideIcon]="Check" class="h-3.5 w-3.5" aria-hidden="true"></svg>
+      Resolve {{ selected().length }} warning{{ selected().length > 1 ? 's' : '' }}
+    </button>
+    <button
+      *ngIf="selected().length === 0 && selectableWarnings().length > 0"
+      type="button"
+      (click)="selectAllWarnings()"
+      class="ml-auto text-2xs font-semibold text-primary-600 hover:underline"
+    >
+      Select all warnings
+    </button>
+  </div>
+
+  <mg-table-row-skeleton *ngIf="loading()" [columns]="7" [rows]="8" />
+
+  <div *ngIf="!loading() && !error() && rows().length === 0" class="rounded-lg border border-border bg-card shadow-card">
+    <mg-empty-state
+      [icon]="state() === 'unresolved' ? ShieldCheck : Bell"
+      [title]="state() === 'unresolved' ? 'No unresolved alerts' : 'No alerts match these filters'"
+      [description]="state() === 'unresolved' ? 'Every cold-chain excursion has been reviewed and closed out.' : 'Adjust the severity or state filters to see more of the log.'"
+    />
+  </div>
+
+  <mg-data-table *ngIf="!loading() && !error() && rows().length > 0" [rows]="rows()" [pageSize]="12">
+    <ng-template mgColumn header="" let-a>
+      <input
+        type="checkbox"
+        [attr.aria-label]="'Select alert for ' + a.batchNumber"
+        [disabled]="a.severity !== 'warning' || !!a.resolvedAt"
+        [checked]="isSelected(a.id)"
+        (click)="$event.stopPropagation()"
+        (change)="toggleSelected(a.id, $event)"
+        class="h-3.5 w-3.5 disabled:opacity-30"
+      />
+    </ng-template>
+    <ng-template mgColumn header="Severity" let-a>
+      <mg-status-badge [meta]="getSeverityMeta(a)" size="sm" [pulse]="a.severity === 'critical' && !a.resolvedAt" />
+    </ng-template>
+    <ng-template mgColumn header="Batch #" let-a>
+      <a routerLink="/batches/{{ a.batchId }}" class="numeric text-xs font-bold text-primary-600 hover:underline">{{ a.batchNumber }}</a>
+    </ng-template>
+    <ng-template mgColumn header="Drug" let-a>
+      <span class="text-xs text-foreground">{{ a.drugName }}</span>
+    </ng-template>
+    <ng-template mgColumn header="Message" let-a>
+      <span class="text-xs text-muted-foreground">{{ a.message }}</span>
+    </ng-template>
+    <ng-template mgColumn header="Triggered At" let-a>
+      <div class="flex flex-col">
+        <span class="numeric text-xs text-foreground">{{ formatDateTime(a.triggeredAt) }}</span>
+        <span class="text-2xs text-muted-foreground">{{ timeAgo(a.triggeredAt) }}</span>
+      </div>
+    </ng-template>
+    <ng-template mgColumn header="Status" let-a>
+      <div *ngIf="a.resolvedAt; else resolveBtn" class="flex flex-col">
+        <span class="inline-flex items-center gap-1 text-2xs font-semibold text-safe">
+          <svg [lucideIcon]="Check" class="h-3.5 w-3.5" aria-hidden="true"></svg> Resolved
+        </span>
+        <span class="text-2xs text-muted-foreground">{{ a.resolvedBy }}</span>
+      </div>
+      <ng-template #resolveBtn>
+        <button
+          type="button"
+          (click)="onResolve(a)"
+          class="rounded-md border border-border px-2 py-1 text-2xs font-semibold hover:border-primary-600 hover:text-primary-600"
+        >
+          Resolve
+        </button>
+      </ng-template>
+    </ng-template>
+  </mg-data-table>
+
+  <mg-confirm-dialog
+    [open]="pendingResolve() !== null"
+    title="Resolve critical alert?"
+    [description]="confirmDescription()"
+    confirmLabel="Resolve alert"
+    [destructive]="true"
+    (confirm)="confirmResolve()"
+    (cancel)="pendingResolve.set(null)"
+  />
+</div>

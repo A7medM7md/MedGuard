@@ -1,4 +1,4 @@
-import { Batch, Reading } from './models/medguard.models';
+import { Batch, Reading } from './models';
 
 export function timeAgo(isoDate: string, now: number = Date.now()): string {
   const diff = Math.max(0, now - new Date(isoDate).getTime());

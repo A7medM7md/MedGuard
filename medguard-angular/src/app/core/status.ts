@@ -11,7 +11,7 @@ import {
   LucideTruck,
   LucideWifiOff,
 } from '@lucide/angular';
-import { AlertSeverity, BatchStatus, DeviceStatus, ShipmentStatus } from './models/medguard.models';
+import { AlertSeverity, BatchStatus, DeviceStatus, ShipmentStatus } from './models';
 import { IconRef } from './icons';
 
 export type StatusTone = 'critical' | 'warning' | 'safe' | 'transit' | 'neutral';

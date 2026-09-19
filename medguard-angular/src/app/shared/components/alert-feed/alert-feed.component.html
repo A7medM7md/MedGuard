@@ -1,0 +1,25 @@
+<ul class="divide-y divide-border">
+  <li
+    *ngFor="let a of alerts"
+    class="flex items-start gap-3 px-4 py-3"
+    [ngClass]="a.severity === 'critical' ? 'bg-critical-bg/40' : ''"
+  >
+    <mg-status-badge [meta]="alertSeverityMeta[a.severity]" size="sm" [pulse]="a.severity === 'critical'" />
+    <div class="min-w-0 flex-1">
+      <p class="numeric text-xs font-bold text-foreground">{{ a.batchNumber }} <span class="font-sans font-normal text-muted-foreground">· {{ a.drugName }}</span></p>
+      <p class="mt-0.5 text-xs text-foreground">{{ a.message }}</p>
+      <p class="numeric mt-1 text-2xs text-muted-foreground">{{ timeAgo(a.triggeredAt) }}</p>
+    </div>
+    <button
+      *ngIf="!a.resolvedAt"
+      type="button"
+      class="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-2xs font-semibold text-foreground hover:bg-muted"
+      (click)="resolve.emit(a.id)"
+    >
+      Resolve
+    </button>
+    <span *ngIf="a.resolvedAt" class="numeric shrink-0 text-2xs text-muted-foreground">
+      Resolved {{ timeAgo(a.resolvedAt) }}
+    </span>
+  </li>
+</ul>

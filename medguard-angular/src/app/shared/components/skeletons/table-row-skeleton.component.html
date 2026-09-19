@@ -1,0 +1,5 @@
+<div class="divide-y divide-border">
+  <div *ngFor="let r of rowsArray" class="grid animate-pulse gap-4 px-4 py-3" [style.gridTemplateColumns]="gridTemplate">
+    <div *ngFor="let c of colsArray" class="h-3.5 rounded bg-muted"></div>
+  </div>
+</div>

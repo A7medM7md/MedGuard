@@ -1,0 +1,98 @@
+<div class="flex min-h-screen w-full bg-background">
+  <aside
+    class="sticky top-0 flex h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200"
+    [ngClass]="collapsed() ? 'w-14' : 'w-56'"
+  >
+    <div class="flex items-center gap-2 px-3 py-4" [ngClass]="collapsed() ? 'justify-center px-0' : ''">
+      <svg [lucideIcon]="ShieldCheck" class="h-6 w-6 shrink-0 text-sidebar-primary-foreground" aria-hidden="true"></svg>
+      <div class="min-w-0" *ngIf="!collapsed()">
+        <p class="truncate text-sm font-bold tracking-tight">MedGuard</p>
+        <p class="truncate text-2xs text-sidebar-foreground/70">Cold-Chain Control</p>
+      </div>
+    </div>
+
+    <nav class="flex-1 space-y-0.5 px-2" aria-label="Main">
+      <a
+        *ngFor="let item of nav"
+        [routerLink]="item.to"
+        routerLinkActive="bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+        [routerLinkActiveOptions]="{ exact: !!item.exact }"
+        [title]="collapsed() ? item.label : undefined"
+        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        [ngClass]="collapsed() ? 'justify-center px-0' : ''"
+      >
+        <svg [lucideIcon]="item.icon" class="h-[18px] w-[18px] shrink-0" aria-hidden="true"></svg>
+        <span *ngIf="!collapsed()" class="truncate">{{ item.label }}</span>
+        <span
+          *ngIf="item.label === 'Alerts' && unresolvedCount() > 0 && !collapsed()"
+          class="numeric ml-auto rounded-sm bg-critical px-1.5 py-0.5 text-2xs font-bold text-white"
+        >
+          {{ unresolvedCount() }}
+        </span>
+      </a>
+    </nav>
+
+    <div class="space-y-0.5 border-t border-sidebar-border px-2 py-2">
+      <a
+        routerLink="/settings"
+        routerLinkActive="bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+        [title]="collapsed() ? 'Settings' : undefined"
+        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        [ngClass]="collapsed() ? 'justify-center px-0' : ''"
+      >
+        <svg [lucideIcon]="Settings" class="h-[18px] w-[18px] shrink-0" aria-hidden="true"></svg>
+        <span *ngIf="!collapsed()">Settings</span>
+      </a>
+      <button
+        type="button"
+        (click)="collapsed.set(!collapsed())"
+        [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+        class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        [ngClass]="collapsed() ? 'justify-center px-0' : ''"
+      >
+        <svg [lucideIcon]="collapsed() ? ChevronsRight : ChevronsLeft" class="h-[18px] w-[18px]" aria-hidden="true"></svg>
+        <span *ngIf="!collapsed()">Collapse</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="flex min-w-0 flex-1 flex-col">
+    <header class="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur">
+      <div class="relative min-w-0 max-w-md">
+        <svg [lucideIcon]="Search" class="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true"></svg>
+        <input
+          type="search"
+          placeholder="Search batch number or device ID…"
+          aria-label="Search batches and devices"
+          class="numeric h-9 w-full rounded-lg border border-border bg-background pr-3 pl-8 text-xs text-foreground placeholder:font-sans placeholder:text-muted-foreground"
+        />
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <span class="hidden text-xs font-semibold text-muted-foreground md:inline">
+          {{ auth.displayName }}<span *ngIf="auth.role"> · {{ auth.role }}</span>
+        </span>
+        <button
+          type="button"
+          (click)="toggleDark()"
+          [attr.aria-label]="dark() ? 'Switch to light mode' : 'Switch to dark mode'"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+        >
+          <svg [lucideIcon]="dark() ? Sun : Moon" class="h-4 w-4" aria-hidden="true"></svg>
+        </button>
+        <button
+          type="button"
+          (click)="auth.logout()"
+          aria-label="Sign out"
+          title="Sign out"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+        >
+          <svg [lucideIcon]="LogOut" class="h-4 w-4" aria-hidden="true"></svg>
+        </button>
+        <span class="numeric inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-700 text-xs font-bold text-white">{{ initials() }}</span>
+      </div>
+    </header>
+    <main class="min-w-0 flex-1 p-4 lg:p-6">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>

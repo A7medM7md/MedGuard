@@ -7,15 +7,7 @@ import { StatusMeta, toneBg, toneBorder, toneText } from '../../../core/status';
   selector: 'mg-status-badge',
   standalone: true,
   imports: [CommonModule, LucideDynamicIcon],
-  template: `
-    <span
-      class="inline-flex items-center gap-1.5 rounded-md border font-semibold whitespace-nowrap"
-      [ngClass]="[toneBg[meta.tone], toneBorder[meta.tone], toneText[meta.tone], sizeClasses, pulse ? 'animate-status-pulse' : '']"
-    >
-      <svg [lucideIcon]="meta.icon" [class]="iconSize" aria-hidden="true"></svg>
-      {{ meta.label }}
-    </span>
-  `,
+  templateUrl: './status-badge.component.html',
 })
 export class StatusBadgeComponent {
   @Input({ required: true }) meta!: StatusMeta;
