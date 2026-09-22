@@ -22,6 +22,8 @@ the real, authenticated API, with org-configurable thresholds actually driving d
 behavior rather than sitting decorative on a settings screen. See
 [Roadmap](#-roadmap) for the event-driven microservices phase planned next.
 
+**Production:** https://medguardd.vercel.app/
+
 </div>
 
 ---
