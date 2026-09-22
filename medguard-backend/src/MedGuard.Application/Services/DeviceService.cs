@@ -82,9 +82,10 @@ public class DeviceService : ResponseHandler, IDeviceService
         // numbers are resolved with one bulk lookup here rather than a lookup per device.
         var batches = await _uow.Batches.GetAllAsync(ct);
         var batchNumbersById = batches.ToDictionary(b => b.Id, b => b.BatchNumber);
+        var staleAfter = await GetStaleAfterAsync(ct);
 
         var result = devices
-            .Select(d => ToDto(d, d.AssignedBatchId.HasValue ? batchNumbersById.GetValueOrDefault(d.AssignedBatchId.Value) : null))
+            .Select(d => ToDto(d, d.AssignedBatchId.HasValue ? batchNumbersById.GetValueOrDefault(d.AssignedBatchId.Value) : null, staleAfter))
             .ToList();
         return Success(result);
     }
@@ -97,10 +98,19 @@ public class DeviceService : ResponseHandler, IDeviceService
             var batch = await _uow.Batches.GetByIdAsync(batchId, ct);
             batchNumber = batch?.BatchNumber;
         }
-        return ToDto(d, batchNumber);
+        var staleAfter = await GetStaleAfterAsync(ct);
+        return ToDto(d, batchNumber, staleAfter);
     }
 
-    private static DeviceDto ToDto(Device d, string? assignedBatchNumber) => new(
+    // Settings > Alerting > Device silent after — drives when a device's derived
+    // status flips from Online to Stale (see Device.GetStatus).
+    private async Task<TimeSpan> GetStaleAfterAsync(CancellationToken ct)
+    {
+        var settings = await _uow.OrgSettings.GetSingletonAsync(ct);
+        return TimeSpan.FromMinutes(settings?.DeviceSilentAfterMinutes ?? 5);
+    }
+
+    private static DeviceDto ToDto(Device d, string? assignedBatchNumber, TimeSpan staleAfter) => new(
         d.Id, d.DeviceCode, d.Model, d.AssignedBatchId, assignedBatchNumber, d.LastSeenAtUtc,
-        d.BatteryPercent, d.SignalPercent, d.GetStatus());
+        d.BatteryPercent, d.SignalPercent, d.GetStatus(staleAfter: staleAfter));
 }

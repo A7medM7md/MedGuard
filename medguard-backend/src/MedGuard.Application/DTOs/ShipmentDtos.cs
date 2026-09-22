@@ -12,6 +12,7 @@ public record CreateShipmentRequest(
 public record ShipmentDto(
     Guid Id,
     Guid BatchId,
+    string BatchNumber,
     string OriginLocation,
     string DestinationLocation,
     string? CourierName,

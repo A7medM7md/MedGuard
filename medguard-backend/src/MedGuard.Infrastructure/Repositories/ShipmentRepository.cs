@@ -11,7 +11,14 @@ public class ShipmentRepository : EfRepository<Shipment>, IShipmentRepository
 
     public async Task<IReadOnlyList<Shipment>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default) =>
         await Set.AsNoTracking()
+            .Include(s => s.Batch)
             .Where(s => s.BatchId == batchId)
+            .OrderByDescending(s => s.CreatedAtUtc)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<Shipment>> GetAllWithBatchAsync(CancellationToken ct = default) =>
+        await Set.AsNoTracking()
+            .Include(s => s.Batch)
             .OrderByDescending(s => s.CreatedAtUtc)
             .ToListAsync(ct);
 }

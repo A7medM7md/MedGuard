@@ -1,6 +1,157 @@
-<div class="space-y-5">
-  <mg-page-header title="Settings" description="Coming next — built the same way as the Dashboard page." />
-  <div class="rounded-lg border border-dashed border-border bg-card p-8 text-center shadow-card">
-    <p class="text-sm text-muted-foreground">This page is next in line to build.</p>
+<div class="space-y-4">
+  <mg-page-header
+    title="Settings"
+    description="Organization profile, alerting thresholds and display preferences for this workspace."
+  />
+
+  <p *ngIf="error()" class="rounded-lg border border-critical-border bg-critical-bg/40 px-4 py-3 text-sm text-critical">
+    Could not load settings. <button type="button" class="font-semibold underline" (click)="load()">Retry</button>
+  </p>
+
+  <div *ngIf="loading()" class="grid gap-4 xl:grid-cols-2">
+    <div class="h-48 animate-pulse rounded-lg border border-border bg-card"></div>
+    <div class="h-48 animate-pulse rounded-lg border border-border bg-card"></div>
+    <div class="h-48 animate-pulse rounded-lg border border-border bg-card"></div>
+    <div class="h-48 animate-pulse rounded-lg border border-border bg-card"></div>
   </div>
+
+  <form *ngIf="!loading() && !error() && form" (ngSubmit)="save()" class="!mt-6 space-y-4">
+    <div class="grid gap-4 xl:grid-cols-2">
+      <!-- Organization -->
+      <section class="rounded-lg border border-border bg-card shadow-card">
+        <h2 class="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
+          <svg [lucideIcon]="Building2" class="h-4 w-4 text-muted-foreground" aria-hidden="true"></svg>
+          Organization
+        </h2>
+        <div class="space-y-3 p-4">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Organization name</label>
+            <input
+              [(ngModel)]="form.organizationName"
+              name="organizationName"
+              class="w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Time zone</label>
+            <select [(ngModel)]="form.timeZone" name="timeZone" class="w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
+              <option *ngFor="let tz of timeZones" [value]="tz">{{ tz }}</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cold-chain thresholds -->
+      <section class="rounded-lg border border-border bg-card shadow-card">
+        <h2 class="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
+          <svg [lucideIcon]="Thermometer" class="h-4 w-4 text-muted-foreground" aria-hidden="true"></svg>
+          Cold-chain thresholds
+        </h2>
+        <div class="space-y-3 p-4">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Warning margin (% of safe range)</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              [(ngModel)]="form.warningMarginPercent"
+              name="warningMarginPercent"
+              class="numeric w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+            />
+            <p class="mt-1 text-2xs text-muted-foreground">
+              A breach within this margin of the safe range raises a Warning; further out raises a Critical alert.
+            </p>
+          </div>
+          <label class="flex items-center gap-2 text-xs font-medium text-foreground">
+            <input type="checkbox" [(ngModel)]="form.autoQuarantineOnBreach" name="autoQuarantineOnBreach" />
+            Auto-quarantine batch on critical breach
+          </label>
+        </div>
+      </section>
+
+      <!-- Alerting -->
+      <section class="rounded-lg border border-border bg-card shadow-card">
+        <h2 class="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
+          <svg [lucideIcon]="Bell" class="h-4 w-4 text-muted-foreground" aria-hidden="true"></svg>
+          Alerting
+        </h2>
+        <div class="space-y-4 p-4">
+          <div>
+            <p class="mb-1.5 text-xs font-medium text-foreground">Critical alerts routed to</p>
+            <div class="flex flex-wrap gap-3">
+              <label *ngFor="let c of channelOptions" class="flex items-center gap-1.5 text-xs text-foreground">
+                <input type="checkbox" [checked]="hasCriticalChannel(c.key)" (change)="toggleCriticalChannel(c.key, $event)" />
+                {{ c.label }}
+              </label>
+            </div>
+          </div>
+          <div>
+            <p class="mb-1.5 text-xs font-medium text-foreground">Warning alerts routed to</p>
+            <div class="flex flex-wrap gap-3">
+              <label *ngFor="let c of channelOptions" class="flex items-center gap-1.5 text-xs text-foreground">
+                <input type="checkbox" [checked]="hasWarningChannel(c.key)" (change)="toggleWarningChannel(c.key, $event)" />
+                {{ c.label }}
+              </label>
+            </div>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-foreground">Device silent after (minutes)</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              [(ngModel)]="form.deviceSilentAfterMinutes"
+              name="deviceSilentAfterMinutes"
+              class="numeric w-32 rounded-md border border-border bg-background px-3 py-2 text-xs"
+            />
+            <p class="mt-1 text-2xs text-muted-foreground">A device with no heartbeat this long is flagged Stale; 6x that, Offline.</p>
+          </div>
+          <p class="text-2xs text-muted-foreground">
+            Email and SMS dispatch aren't wired up yet — this records where alerts <em>should</em> go once that service exists.
+          </p>
+        </div>
+      </section>
+
+      <!-- Display -->
+      <section class="rounded-lg border border-border bg-card shadow-card">
+        <h2 class="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
+          <svg [lucideIcon]="Moon" class="h-4 w-4 text-muted-foreground" aria-hidden="true"></svg>
+          Display
+        </h2>
+        <dl class="divide-y divide-border">
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5">
+            <dt class="truncate text-xs text-muted-foreground">Theme</dt>
+            <dd class="text-xs font-semibold text-foreground">Toggle from the top bar</dd>
+          </div>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5">
+            <dt class="truncate text-xs text-muted-foreground">Default landing page</dt>
+            <dd class="text-xs font-semibold text-foreground">Dashboard</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button
+        type="submit"
+        [disabled]="!dirty() || saving()"
+        class="inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+      >
+        <svg [lucideIcon]="Save" class="h-4 w-4" aria-hidden="true"></svg>
+        {{ saving() ? 'Saving…' : 'Save changes' }}
+      </button>
+      <button
+        type="button"
+        [disabled]="!dirty() || saving()"
+        (click)="reset()"
+        class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-60"
+      >
+        <svg [lucideIcon]="RotateCcw" class="h-4 w-4" aria-hidden="true"></svg>
+        Discard changes
+      </button>
+      <span *ngIf="saveError()" class="text-xs text-critical">{{ saveError() }}</span>
+      <span *ngIf="savedAt() && !dirty()" class="text-xs text-safe">Saved.</span>
+    </div>
+  </form>
 </div>

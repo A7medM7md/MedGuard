@@ -7,7 +7,7 @@ public interface IUnitOfWork
     IAlertRepository Alerts { get; }
     IShipmentRepository Shipments { get; }
     IDeviceRepository Devices { get; }
-
+    IOrgSettingsRepository OrgSettings { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

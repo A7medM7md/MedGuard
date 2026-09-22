@@ -16,11 +16,11 @@ A cold-chain monitoring platform built with **ASP.NET Core**, **EF Core**, **SQL
 ![Tailwind](https://img.shields.io/badge/TailwindCSS-UI-38bdf8)
 
 **Status:** Backend API, core domain logic, and OAuth2/OIDC auth (Duende IdentityServer)
-are complete and running end-to-end. Angular Dashboard, Batches, Batch Detail, and
-Devices pages are fully wired to the real, authenticated API. Alerts (full log),
-Shipments, Monitoring and Settings pages are scaffolded and in progress. See
-[Roadmap](#-roadmap) for the event-driven microservices phase planned after the
-frontend is finished.
+are complete and running end-to-end. Every Angular page — Dashboard, Batches, Batch
+Detail, Devices, Alerts, Shipments, Live Monitoring and Settings — is fully wired to
+the real, authenticated API, with org-configurable thresholds actually driving domain
+behavior rather than sitting decorative on a settings screen. See
+[Roadmap](#-roadmap) for the event-driven microservices phase planned next.
 
 </div>
 
@@ -79,7 +79,7 @@ it from being shipped until a human resolves the alert.
 - Ship a batch (blocked while quarantined or recalled — enforced by the
   aggregate)
 - Mark a shipment delivered
-- Per-batch shipment history
+- Full shipment log across every batch, plus per-batch shipment history
 
 ## 📡 Device Management
 
@@ -96,6 +96,25 @@ it from being shipped until a human resolves the alert.
   from the real API
 - Unresolved-alert feed with resolve actions and critical-alert confirmation
 - Recent-batches table with live status and last-reading temperature
+
+## 📡 Live Monitoring
+
+- Wall-display card grid of every batch currently in storage or transit,
+  polling the API every 10 seconds
+- Problem batches (critical, then warning) automatically sort to the top
+- Per-batch sparkline trend and current reading, derived from the same sensor
+  history the batch detail chart uses
+
+## ⚙️ Settings — org-configurable, not decorative
+
+- Organization profile, cold-chain thresholds and alert routing are real,
+  persisted, and editable — not the read-only mock the original design shipped
+  with
+- Two settings actually drive live domain behavior: **Warning margin %**
+  (replaces a hardcoded tolerance in `Batch.RecordReading` with a
+  percentage-of-safe-range calculation) and **Auto-quarantine on breach** (a
+  real on/off switch on the aggregate's quarantine call) — plus **Device
+  silent after** controls when a device's derived status flips to Stale
 
 ---
 

@@ -13,7 +13,8 @@ public class UnitOfWork : IUnitOfWork
         ISensorReadingRepository sensorReadings,
         IAlertRepository alerts,
         IShipmentRepository shipments,
-        IDeviceRepository devices)
+        IDeviceRepository devices,
+        IOrgSettingsRepository orgSettings)
     {
         _context = context;
         Batches = batches;
@@ -21,6 +22,7 @@ public class UnitOfWork : IUnitOfWork
         Alerts = alerts;
         Shipments = shipments;
         Devices = devices;
+        OrgSettings = orgSettings;
     }
 
     public IBatchRepository Batches { get; }
@@ -28,6 +30,7 @@ public class UnitOfWork : IUnitOfWork
     public IAlertRepository Alerts { get; }
     public IShipmentRepository Shipments { get; }
     public IDeviceRepository Devices { get; }
+    public IOrgSettingsRepository OrgSettings { get; }
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default) => _context.SaveChangesAsync(ct);
 }

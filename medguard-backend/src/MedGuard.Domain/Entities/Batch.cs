@@ -18,9 +18,6 @@ public class Batch : BaseEntity
     private readonly List<Alert> _alerts = new();
     private readonly List<Shipment> _shipments = new();
 
-    // Tolerance before a breach is treated as Critical instead of just a Warning.
-    private const decimal WarningToleranceC = 1.0m;
-
     public string BatchNumber { get; private set; } = default!;
     public string DrugName { get; private set; } = default!;
     public string ManufacturerName { get; private set; } = default!;
@@ -67,11 +64,22 @@ public class Batch : BaseEntity
 
     /// <summary>
     /// THE core rule of the whole system. Adds a reading, checks it against the safe
-    /// range, and raises an Alert (quarantining the batch on a critical breach) when
-    /// needed. Returns the Alert raised, or null if the reading was within range.
-    /// Nothing about cold-chain safety can happen except through this method.
+    /// range, and raises an Alert (quarantining the batch on a critical breach, unless
+    /// disabled) when needed. Returns the Alert raised, or null if the reading was
+    /// within range. Nothing about cold-chain safety can happen except through this
+    /// method.
     /// </summary>
-    public Alert? RecordReading(SensorReading reading)
+    /// <param name="warningMarginPercent">
+    /// How far outside the safe range (as a percentage of its width) a breach is still
+    /// treated as a Warning rather than Critical — the org-configurable value behind
+    /// Settings > Cold-chain thresholds > Warning margin.
+    /// </param>
+    /// <param name="autoQuarantineOnBreach">
+    /// Settings > Cold-chain thresholds > Auto-quarantine on breach. When false, a
+    /// critical breach still raises a Critical alert but leaves the batch's status
+    /// alone — a human must quarantine it manually.
+    /// </param>
+    public Alert? RecordReading(SensorReading reading, decimal warningMarginPercent = 15m, bool autoQuarantineOnBreach = true)
     {
         ArgumentNullException.ThrowIfNull(reading);
         if (reading.BatchId != Id)
@@ -83,16 +91,18 @@ public class Batch : BaseEntity
             return null;
 
         var overBy = SafeRange.DistanceOutsideRange(reading.TemperatureC);
-        var severity = overBy <= WarningToleranceC ? AlertSeverity.Warning : AlertSeverity.Critical;
+        var toleranceC = SafeRange.RangeWidth * warningMarginPercent / 100m;
+        var severity = overBy <= toleranceC ? AlertSeverity.Warning : AlertSeverity.Critical;
 
         var message = severity == AlertSeverity.Critical
-            ? $"CRITICAL: Batch {BatchNumber} recorded {reading.TemperatureC}C — outside safe range [{SafeRange}]. Batch quarantined."
+            ? $"CRITICAL: Batch {BatchNumber} recorded {reading.TemperatureC}C — outside safe range [{SafeRange}]."
+              + (autoQuarantineOnBreach ? " Batch quarantined." : " Auto-quarantine is disabled — review and quarantine manually if needed.")
             : $"WARNING: Batch {BatchNumber} recorded {reading.TemperatureC}C — approaching the edge of its safe range [{SafeRange}].";
 
         var alert = Alert.Raise(Id, reading.Id, severity, message);
         _alerts.Add(alert);
 
-        if (severity == AlertSeverity.Critical && Status != BatchStatus.Recalled)
+        if (severity == AlertSeverity.Critical && autoQuarantineOnBreach && Status != BatchStatus.Recalled)
             Quarantine();
 
         return alert;

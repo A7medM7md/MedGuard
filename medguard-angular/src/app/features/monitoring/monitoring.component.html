@@ -1,6 +1,60 @@
-<div class="space-y-5">
-  <mg-page-header title="Monitoring" description="Coming next — built the same way as the Dashboard page." />
-  <div class="rounded-lg border border-dashed border-border bg-card p-8 text-center shadow-card">
-    <p class="text-sm text-muted-foreground">This page is next in line to build.</p>
+<div class="space-y-4">
+  <mg-page-header
+    title="Live Monitoring"
+    description="Wall-display view — problem batches sort to the top automatically. Refreshes every 10 seconds."
+    [action]="liveIndicator"
+  />
+  <ng-template #liveIndicator>
+    <span class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-2xs font-semibold text-muted-foreground">
+      <svg [lucideIcon]="Activity" class="h-3.5 w-3.5 animate-status-pulse text-safe" aria-hidden="true"></svg>
+      Live feed connected
+    </span>
+  </ng-template>
+
+  <p *ngIf="error()" class="rounded-lg border border-critical-border bg-critical-bg/40 px-4 py-3 text-sm text-critical">
+    Could not load live data. <button type="button" class="font-semibold underline" (click)="load()">Retry</button>
+  </p>
+
+  <div *ngIf="loading()" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div *ngFor="let i of [1, 2, 3, 4, 5, 6]" class="h-40 animate-pulse rounded-lg border border-border bg-card"></div>
+  </div>
+
+  <div *ngIf="!loading() && !error() && cards().length === 0" class="rounded-lg border border-border bg-card shadow-card">
+    <mg-empty-state
+      [icon]="Package"
+      title="Nothing to monitor"
+      description="No batches are currently in storage or transit, so there are no live sensor feeds to display."
+    />
+  </div>
+
+  <div *ngIf="!loading() && !error() && cards().length > 0" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <a
+      *ngFor="let c of cards()"
+      routerLink="/batches/{{ c.batch.id }}"
+      class="block rounded-lg border-2 bg-card p-4 shadow-card transition-shadow hover:shadow-overlay"
+      [ngClass]="[toneBorder[readingLevelMeta[c.level].tone], c.level === 'critical' ? 'bg-critical-bg/40' : '']"
+    >
+      <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+        <p class="numeric truncate text-xs font-bold text-foreground">{{ c.batch.batchNumber }}</p>
+        <mg-status-badge [meta]="getBatchStatusMeta(c.batch)" size="sm" [pulse]="c.level === 'critical'" />
+      </div>
+      <p class="mt-0.5 truncate text-2xs text-muted-foreground">{{ c.batch.drugName }}</p>
+
+      <p class="display-figure mt-3 text-3xl" [ngClass]="toneText[readingLevelMeta[c.level].tone]">
+        {{ c.lastReading ? (c.lastReading.temperatureC | number: '1.1-1') : '—' }}
+        <span class="ml-1 text-lg">°C</span>
+      </p>
+
+      <div class="mt-1 flex items-center justify-between text-2xs">
+        <span class="font-semibold" [ngClass]="toneText[readingLevelMeta[c.level].tone]">{{ readingLevelMeta[c.level].label }}</span>
+        <span class="numeric text-muted-foreground">range {{ c.batch.minTempC }}–{{ c.batch.maxTempC }} °C</span>
+      </div>
+
+      <mg-sparkline [readings]="c.readings" [tone]="readingLevelMeta[c.level].tone" />
+
+      <p class="numeric text-2xs text-muted-foreground">
+        {{ c.lastReading ? c.lastReading.deviceId : 'no device' }} · {{ c.lastReading ? timeAgo(c.lastReading.recordedAt) : 'no data' }}
+      </p>
+    </a>
   </div>
 </div>

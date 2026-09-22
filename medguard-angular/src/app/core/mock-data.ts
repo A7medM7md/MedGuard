@@ -232,6 +232,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 's1',
     batchId: 'b2',
+    batchNumber: 'IG-2026-1183-C',
     origin: 'Sanofi Frankfurt Plant',
     destination: 'Berlin Central Pharmacy Depot',
     courier: 'ColdLine Logistics',
@@ -242,6 +243,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 's2',
     batchId: 'b3',
+    batchNumber: 'HB-2026-0044-B',
     origin: 'Grifols Paris Facility',
     destination: 'Lyon University Hospital',
     courier: 'MedTrans Express',
@@ -252,6 +254,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 's3',
     batchId: 'b6',
+    batchNumber: 'RB-2025-9981-F',
     origin: 'Grifols Munich Facility',
     destination: 'Munich Regional Pharmacy',
     courier: 'ColdLine Logistics',

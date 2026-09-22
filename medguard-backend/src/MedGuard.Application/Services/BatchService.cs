@@ -73,7 +73,7 @@ public class BatchService : ResponseHandler, IBatchService
 
         var shipments = batch.Shipments
             .OrderByDescending(s => s.CreatedAtUtc)
-            .Select(s => new ShipmentDto(s.Id, s.BatchId, s.OriginLocation, s.DestinationLocation, s.CourierName, s.Status, s.DepartedAtUtc, s.ArrivedAtUtc))
+            .Select(s => new ShipmentDto(s.Id, s.BatchId, batch.BatchNumber, s.OriginLocation, s.DestinationLocation, s.CourierName, s.Status, s.DepartedAtUtc, s.ArrivedAtUtc))
             .ToList();
 
         var result = new BatchDetailDto(ToDto(batch), readings, alerts, shipments);

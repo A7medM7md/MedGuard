@@ -12,6 +12,7 @@ public class MedGuardDbContext : DbContext
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<Device> Devices => Set<Device>();
+    public DbSet<OrgSettings> OrgSettings => Set<OrgSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

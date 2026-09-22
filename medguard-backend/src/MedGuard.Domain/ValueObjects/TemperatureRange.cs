@@ -20,6 +20,8 @@ public sealed record TemperatureRange
         MaxC = maxC;
     }
 
+    public decimal RangeWidth => MaxC - MinC;
+
     public bool IsBreach(decimal temperatureC) => temperatureC < MinC || temperatureC > MaxC;
 
     /// <summary>How far outside the range a temperature is. 0 if it's within range.</summary>

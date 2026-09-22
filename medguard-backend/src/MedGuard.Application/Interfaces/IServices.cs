@@ -38,6 +38,7 @@ public interface IShipmentService
     Task<Response<ShipmentDto>> CreateShipmentAsync(CreateShipmentRequest request, CancellationToken ct = default);
     Task<Response<ShipmentDto>> MarkDeliveredAsync(Guid shipmentId, CancellationToken ct = default);
     Task<Response<List<ShipmentDto>>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default);
+    Task<Response<List<ShipmentDto>>> GetAllAsync(CancellationToken ct = default);
 }
 
 public interface IDeviceService
@@ -47,4 +48,10 @@ public interface IDeviceService
     Task<Response<DeviceDto>> AssignToBatchAsync(Guid deviceId, Guid batchId, CancellationToken ct = default);
     Task<Response<DeviceDto>> UnassignAsync(Guid deviceId, CancellationToken ct = default);
     Task<Response<List<DeviceDto>>> GetAllAsync(CancellationToken ct = default);
+}
+
+public interface ISettingsService
+{
+    Task<Response<SettingsDto>> GetAsync(CancellationToken ct = default);
+    Task<Response<SettingsDto>> UpdateAsync(UpdateSettingsRequest request, CancellationToken ct = default);
 }

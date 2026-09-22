@@ -26,9 +26,16 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
             request.Latitude,
             request.Longitude);
 
-        // All breach-evaluation, alert-raising and auto-quarantine logic lives inside the
-        // aggregate now — this service just hands the reading to the batch and persists.
-        var alert = batch.RecordReading(reading);
+        // Warning-margin and auto-quarantine are org-configurable (Settings page) —
+        // read the live values rather than hardcoding them here.
+        var settings = await _uow.OrgSettings.GetSingletonAsync(ct);
+        var warningMarginPercent = settings?.WarningMarginPercent ?? 15m;
+        var autoQuarantineOnBreach = settings?.AutoQuarantineOnBreach ?? true;
+
+        // All breach-evaluation and alert-raising logic lives inside the aggregate
+        // now — this service just hands the reading (and the current settings) to
+        // the batch and persists.
+        var alert = batch.RecordReading(reading, warningMarginPercent, autoQuarantineOnBreach);
 
         await _uow.SensorReadings.AddAsync(reading, ct);
         // Alert.Id is assigned client-side (BaseEntity generates it in its constructor), so

@@ -52,9 +52,9 @@
     </button>
   </div>
 
-  <mg-table-row-skeleton *ngIf="loading()" [columns]="7" [rows]="8" />
+  <mg-table-row-skeleton *ngIf="loading()" class="!mt-6 block" [columns]="7" [rows]="8" />
 
-  <div *ngIf="!loading() && !error() && rows().length === 0" class="rounded-lg border border-border bg-card shadow-card">
+  <div *ngIf="!loading() && !error() && rows().length === 0" class="!mt-6 rounded-lg border border-border bg-card shadow-card">
     <mg-empty-state
       [icon]="state() === 'unresolved' ? ShieldCheck : Bell"
       [title]="state() === 'unresolved' ? 'No unresolved alerts' : 'No alerts match these filters'"
@@ -62,7 +62,7 @@
     />
   </div>
 
-  <mg-data-table *ngIf="!loading() && !error() && rows().length > 0" [rows]="rows()" [pageSize]="12">
+  <mg-data-table *ngIf="!loading() && !error() && rows().length > 0" class="!mt-6 block" [rows]="rows()" [pageSize]="12">
     <ng-template mgColumn header="" let-a>
       <input
         type="checkbox"

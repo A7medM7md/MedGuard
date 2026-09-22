@@ -18,6 +18,7 @@ export function mapShipmentDto(dto: ShipmentDto): Shipment {
   return {
     id: dto.id,
     batchId: dto.batchId,
+    batchNumber: dto.batchNumber,
     origin: dto.originLocation,
     destination: dto.destinationLocation,
     courier: dto.courierName,
@@ -37,10 +38,9 @@ export class ShipmentService {
     if (environment.useDummyData) {
       return of(MOCK_SHIPMENTS).pipe(delay(DUMMY_LATENCY_MS));
     }
-    // REAL API: GET /api/shipments/batch/{batchId} exists server-side per-batch;
-    // add a GET /api/shipments (all) endpoint for this list page, or aggregate
-    // client-side across getBatches() + per-batch shipment calls.
-    return of(MOCK_SHIPMENTS);
+    return this.http
+      .get<ApiResponse<ShipmentDto[]>>(`${this.baseUrl}/shipments`)
+      .pipe(map((res) => res.data.map(mapShipmentDto)));
   }
 
   getShipmentsForBatch(batchId: string): Observable<Shipment[]> {

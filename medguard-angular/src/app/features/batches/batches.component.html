@@ -47,9 +47,9 @@
     </label>
   </div>
 
-  <mg-table-row-skeleton *ngIf="loading()" [columns]="8" [rows]="6" />
+  <mg-table-row-skeleton *ngIf="loading()" class="!mt-6 block" [columns]="8" [rows]="6" />
 
-  <div *ngIf="!loading() && !error() && rows().length === 0" class="rounded-lg border border-border bg-card shadow-card">
+  <div *ngIf="!loading() && !error() && rows().length === 0" class="!mt-6 rounded-lg border border-border bg-card shadow-card">
     <mg-empty-state
       [icon]="Package"
       [title]="query() || filter() !== 'all' ? 'No batches match these filters' : 'No batches yet'"
@@ -57,7 +57,7 @@
     />
   </div>
 
-  <mg-data-table *ngIf="!loading() && !error() && rows().length > 0" [rows]="rows()" [pageSize]="10" (rowClick)="goToBatch($event)">
+  <mg-data-table *ngIf="!loading() && !error() && rows().length > 0" class="!mt-6 block" [rows]="rows()" [pageSize]="10" (rowClick)="goToBatch($event)">
     <ng-template mgColumn header="Batch Number" let-b>
       <span class="numeric text-xs font-bold text-foreground">{{ b.batchNumber }}</span>
     </ng-template>

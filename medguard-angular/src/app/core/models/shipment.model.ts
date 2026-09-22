@@ -3,6 +3,7 @@ export type ShipmentStatus = 'preparing' | 'in_transit' | 'delivered' | 'aborted
 export interface Shipment {
   id: string;
   batchId: string;
+  batchNumber: string;
   origin: string;
   destination: string;
   courier: string | null;
@@ -15,6 +16,7 @@ export interface Shipment {
 export interface ShipmentDto {
   id: string;
   batchId: string;
+  batchNumber: string;
   originLocation: string;
   destinationLocation: string;
   courierName: string | null;

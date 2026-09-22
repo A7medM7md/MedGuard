@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<IAlertService, AlertService>();
         services.AddScoped<IShipmentService, ShipmentService>();
         services.AddScoped<IDeviceService, DeviceService>();
+        services.AddScoped<ISettingsService, SettingsService>();
 
         return services;
     }

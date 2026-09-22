@@ -87,3 +87,12 @@ export const toneAccent: Record<StatusTone, string> = {
   transit: 'border-l-transit',
   neutral: 'border-l-neutralst',
 };
+
+/** CSS custom property for raw SVG attributes (stroke/fill) that can't take a Tailwind class. */
+export const toneVar: Record<StatusTone, string> = {
+  critical: 'var(--critical)',
+  warning: 'var(--warning)',
+  safe: 'var(--safe)',
+  transit: 'var(--transit)',
+  neutral: 'var(--neutralst)',
+};

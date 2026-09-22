@@ -28,4 +28,8 @@ public class ShipmentsController : BaseApiController
     [HttpGet("batch/{batchId:guid}")]
     public async Task<ActionResult<Response<List<ShipmentDto>>>> GetByBatch(Guid batchId, CancellationToken ct) =>
         NewResult(await _shipmentService.GetByBatchIdAsync(batchId, ct));
+
+    [HttpGet]
+    public async Task<ActionResult<Response<List<ShipmentDto>>>> GetAll(CancellationToken ct) =>
+        NewResult(await _shipmentService.GetAllAsync(ct));
 }

@@ -25,7 +25,7 @@ public class ShipmentService : ResponseHandler, IShipmentService
         await _uow.Shipments.AddAsync(shipment, ct);
         await _uow.SaveChangesAsync(ct);
 
-        var result = ToDto(shipment);
+        var result = ToDto(shipment, batch.BatchNumber);
         return Success(result);
     }
 
@@ -45,17 +45,24 @@ public class ShipmentService : ResponseHandler, IShipmentService
         }
 
         await _uow.SaveChangesAsync(ct);
-        var result = ToDto(shipment);
+        var result = ToDto(shipment, batch?.BatchNumber ?? string.Empty);
         return Success(result);
     }
 
     public async Task<Response<List<ShipmentDto>>> GetByBatchIdAsync(Guid batchId, CancellationToken ct = default)
     {
         var shipments = await _uow.Shipments.GetByBatchIdAsync(batchId, ct);
-        var result = shipments.Select(ToDto).ToList();
+        var result = shipments.Select(s => ToDto(s, s.Batch?.BatchNumber ?? string.Empty)).ToList();
         return Success(result);
     }
 
-    private static ShipmentDto ToDto(Shipment s) => new(
-        s.Id, s.BatchId, s.OriginLocation, s.DestinationLocation, s.CourierName, s.Status, s.DepartedAtUtc, s.ArrivedAtUtc);
+    public async Task<Response<List<ShipmentDto>>> GetAllAsync(CancellationToken ct = default)
+    {
+        var shipments = await _uow.Shipments.GetAllWithBatchAsync(ct);
+        var result = shipments.Select(s => ToDto(s, s.Batch?.BatchNumber ?? string.Empty)).ToList();
+        return Success(result);
+    }
+
+    private static ShipmentDto ToDto(Shipment s, string batchNumber) => new(
+        s.Id, s.BatchId, batchNumber, s.OriginLocation, s.DestinationLocation, s.CourierName, s.Status, s.DepartedAtUtc, s.ArrivedAtUtc);
 }
