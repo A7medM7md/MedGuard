@@ -6,10 +6,11 @@ export const environment = {
    * AlertsController, ShipmentsController) is deployed and reachable.
    */
   useDummyData: false,
-  // apiBaseUrl: 'https://localhost:7590/api',
-  apiBaseUrl: 'http://localhost:7591/api',
+  apiBaseUrl: 'https://localhost:7590/api',
+  // apiBaseUrl: 'https://medguard.runasp.net/api',
   identity: {
     authority: 'https://localhost:5001',
+    // authority: 'http://medguard-identity.runasp.net',
     clientId: 'medguard-angular',
     scope: 'openid profile roles medguard.api offline_access',
     apiScope: 'medguard.api',

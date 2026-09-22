@@ -64,8 +64,48 @@
           type="search"
           placeholder="Search batch number or device ID…"
           aria-label="Search batches and devices"
+          [ngModel]="query()"
+          (ngModelChange)="onSearchInput($event)"
+          (focus)="onSearchFocus()"
+          (keydown)="onSearchKeydown($event)"
           class="numeric h-9 w-full rounded-lg border border-border bg-background pr-3 pl-8 text-xs text-foreground placeholder:font-sans placeholder:text-muted-foreground"
         />
+
+        <div
+          *ngIf="resultsOpen()"
+          class="absolute top-full left-0 z-30 mt-1.5 w-full min-w-72 rounded-lg border border-border bg-card shadow-overlay"
+        >
+          <ng-container *ngIf="hasResults(); else noResults">
+            <div *ngIf="batchResults().length > 0">
+              <p class="px-3 pt-2.5 pb-1 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">Batches</p>
+              <button
+                *ngFor="let b of batchResults()"
+                type="button"
+                (click)="goToBatch(b)"
+                class="flex w-full flex-col items-start gap-0 px-3 py-1.5 text-left hover:bg-muted"
+              >
+                <span class="numeric text-xs font-bold text-foreground">{{ b.batchNumber }}</span>
+                <span class="truncate text-2xs text-muted-foreground">{{ b.drugName }}</span>
+              </button>
+            </div>
+            <div *ngIf="deviceResults().length > 0" [ngClass]="batchResults().length > 0 ? 'border-t border-border' : ''">
+              <p class="px-3 pt-2.5 pb-1 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">Devices</p>
+              <button
+                *ngFor="let d of deviceResults()"
+                type="button"
+                (click)="goToDevice(d)"
+                class="flex w-full flex-col items-start gap-0 px-3 py-1.5 text-left hover:bg-muted"
+              >
+                <span class="numeric text-xs font-bold text-foreground">{{ d.deviceCode }}</span>
+                <span class="truncate text-2xs text-muted-foreground">{{ d.model }}</span>
+              </button>
+            </div>
+            <div class="h-1"></div>
+          </ng-container>
+          <ng-template #noResults>
+            <p class="px-3 py-3 text-xs text-muted-foreground">No batches or devices match "{{ query() }}".</p>
+          </ng-template>
+        </div>
       </div>
       <div class="flex items-center gap-2 sm:gap-3">
         <span class="hidden text-xs font-semibold text-muted-foreground md:inline">

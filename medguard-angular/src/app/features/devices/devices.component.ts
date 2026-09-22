@@ -1,6 +1,6 @@
 import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
   LucideDynamicIcon,
@@ -67,7 +67,7 @@ export class DevicesPageComponent implements OnInit {
   BatteryMedium = LucideBatteryMedium;
   Signal = LucideSignal;
 
-  constructor(private deviceService: DeviceService, private batchService: BatchService) {}
+  constructor(private deviceService: DeviceService, private batchService: BatchService, private route: ActivatedRoute) {}
 
   ngOnInit(): void {
     this.load();
@@ -81,6 +81,13 @@ export class DevicesPageComponent implements OnInit {
       next: (devices) => {
         this.devices.set(devices);
         this.loading.set(false);
+
+        // Deep link from the top-bar search ("jump to" a specific device).
+        const targetId = this.route.snapshot.queryParamMap.get('device');
+        if (targetId) {
+          const target = devices.find((d) => d.id === targetId);
+          if (target) this.selectedDevice.set(target);
+        }
       },
       error: () => {
         this.error.set(true);

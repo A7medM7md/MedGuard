@@ -1,5 +1,5 @@
-using Duende.IdentityServer.Models;
 using Duende.IdentityModel;
+using Duende.IdentityServer.Models;
 
 namespace MedGuard.IdentityServer;
 
@@ -51,9 +51,12 @@ public static class Config
                 RequireClientSecret = false,
                 RequirePkce = true,
 
-                RedirectUris = { "http://localhost:4200/", "http://localhost:4200/index.html" },
-                PostLogoutRedirectUris = { "http://localhost:4200/" },
-                AllowedCorsOrigins = { "http://localhost:4200" },
+                RedirectUris = { "https://medguardd.vercel.app/", "https://medguardd.vercel.app/index.html", "http://localhost:4200/", "http://localhost:4200/index.html" },
+                PostLogoutRedirectUris = { "https://medguardd.vercel.app/", "http://localhost:4200/" },
+                // Must be bare origins (scheme+host+port), no path or trailing slash — Duende
+                // matches this against the browser's literal `Origin` header, which never has
+                // one. A trailing slash here silently breaks CORS for the deployed SPA.
+                AllowedCorsOrigins = { "https://medguardd.vercel.app", "http://localhost:4200" },
 
                 AllowedScopes = { "openid", "profile", "roles", ApiScopeName, "offline_access" },
                 AllowOfflineAccess = true,
