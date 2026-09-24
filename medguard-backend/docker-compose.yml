@@ -1,0 +1,108 @@
+# Local messaging infrastructure for the event-driven ingestion pipeline.
+#
+#   docker compose up -d                    -> HiveMQ + Kafka (+ topic creation)
+#   docker compose --profile tools up -d    -> also Kafka UI on http://localhost:8085
+#
+# Memory is capped on every container — this is meant to run on an 8GB dev
+# machine alongside Visual Studio, SQL Server and the Angular dev server.
+# See docs/adr/0001-mqtt-kafka-telemetry-ingestion.md for the why.
+
+name: medguard
+
+services:
+  # MQTT broker — the edge. Devices hold one long-lived TCP connection each
+  # and publish readings here. HiveMQ CE allows anonymous clients by default,
+  # which is fine for local dev only.
+  hivemq:
+    image: hivemq/hivemq-ce:latest
+    container_name: medguard-hivemq
+    ports:
+      - "1883:1883"   # MQTT (TCP)
+    environment:
+      JAVA_OPTS: "-Xms256m -Xmx384m"
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Kafka broker in KRaft mode (no ZooKeeper) — one node acting as both
+  # broker and controller. Note: with the apache/kafka image, setting ANY
+  # KAFKA_* variable replaces the built-in defaults, so the full set is required.
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: medguard-kafka
+    ports:
+      - "9092:9092"   # for .NET apps running on the host
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # Two client listeners: HOST is advertised as localhost:9092 (for apps on
+      # your machine), INTERNAL as kafka:29092 (for other containers). A client
+      # connects to the bootstrap address, then reconnects to whatever address
+      # the broker *advertises* — getting this wrong is the #1 Kafka-in-Docker bug.
+      KAFKA_LISTENERS: HOST://:9092,INTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      # Single broker => every internal topic can only have 1 replica.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      # Topics are created explicitly by kafka-init below — a typo'd topic
+      # name in code should fail loudly, not silently create a new topic.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      KAFKA_HEAP_OPTS: "-Xms384m -Xmx512m"
+    mem_limit: 900m
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot job: creates the pipeline's topics, then exits.
+  #   sensor-readings      6 partitions, keyed by batchId -> per-batch ordering,
+  #                        up to 6 consumers in parallel
+  #   sensor-readings.dlq  poison messages that failed processing N times
+  #   batch-alerts         alert events published via the outbox
+  kafka-init:
+    image: apache/kafka:3.9.0
+    container_name: medguard-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        T=/opt/kafka/bin/kafka-topics.sh
+        B=kafka:29092
+        $$T --bootstrap-server $$B --create --if-not-exists --topic sensor-readings     --partitions 6 --replication-factor 1 --config retention.ms=604800000
+        $$T --bootstrap-server $$B --create --if-not-exists --topic sensor-readings.dlq --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic batch-alerts        --partitions 3 --replication-factor 1
+        $$T --bootstrap-server $$B --list
+    mem_limit: 256m
+    restart: "no"
+
+  # Web UI for browsing topics, partitions, messages and consumer-group lag.
+  # Behind a profile so it only runs when you ask for it (saves ~300MB).
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: medguard-kafka-ui
+    profiles: ["tools"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: medguard-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      JAVA_OPTS: "-Xms128m -Xmx256m"
+    mem_limit: 400m
+    restart: unless-stopped

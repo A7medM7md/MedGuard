@@ -11,8 +11,15 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // Never committed to appsettings.json — production supplies it via the
+        // ConnectionStrings__MedGuardDb environment variable (Development uses
+        // appsettings.Development.json). Fail at startup, not on the first query.
+        var connectionString = configuration.GetConnectionString("MedGuardDb")
+            ?? throw new InvalidOperationException(
+                "Connection string 'MedGuardDb' is missing. Set the ConnectionStrings__MedGuardDb environment variable.");
+
         services.AddDbContext<MedGuardDbContext>(options =>
-            options.UseSqlServer(configuration.GetConnectionString("MedGuardDb")));
+            options.UseSqlServer(connectionString));
 
         services.AddScoped<IBatchRepository, BatchRepository>();
         services.AddScoped<ISensorReadingRepository, SensorReadingRepository>();
