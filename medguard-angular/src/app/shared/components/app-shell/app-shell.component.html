@@ -3,12 +3,19 @@
     class="sticky top-0 flex h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200"
     [ngClass]="collapsed() ? 'w-14' : 'w-56'"
   >
-    <div class="flex items-center gap-2 px-3 py-4" [ngClass]="collapsed() ? 'justify-center px-0' : ''">
+    <!-- <div class="flex items-center gap-2 px-3 py-4" [ngClass]="collapsed() ? 'justify-center px-0' : ''">
       <svg [lucideIcon]="ShieldCheck" class="h-6 w-6 shrink-0 text-sidebar-primary-foreground" aria-hidden="true"></svg>
       <div class="min-w-0" *ngIf="!collapsed()">
         <p class="truncate text-sm font-bold tracking-tight">MedGuard</p>
         <p class="truncate text-2xs text-sidebar-foreground/70">Cold-Chain Control</p>
       </div>
+    </div> -->
+
+    <div class="flex items-center px-3 py-4" [ngClass]="collapsed() ? 'justify-center px-0' : ''">
+      <app-medguard-logo
+        [size]="collapsed() ? 28 : 36"
+        [iconOnly]="collapsed()">
+        </app-medguard-logo>
     </div>
 
     <nav class="flex-1 space-y-0.5 px-2" aria-label="Main">

@@ -25,6 +25,7 @@ import { DeviceService } from '../../../core/services/device.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Batch, Device } from '../../../core/models';
 import { IconRef } from '../../../core/icons';
+import { MedguardLogoComponent } from '../medguard-logo/medguard-logo';
 
 const MAX_RESULTS_PER_GROUP = 5;
 
@@ -47,7 +48,7 @@ const NAV: NavItem[] = [
 @Component({
   selector: 'mg-app-shell',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, RouterOutlet, LucideDynamicIcon],
+  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, RouterOutlet, LucideDynamicIcon, MedguardLogoComponent],
   templateUrl: './app-shell.component.html',
 })
 export class AppShellComponent implements OnInit {

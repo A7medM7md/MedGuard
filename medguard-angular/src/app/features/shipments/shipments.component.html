@@ -29,7 +29,7 @@
     />
   </div>
 
-  <mg-data-table *ngIf="!loading() && !error() && shipments().length > 0" class="!mt-6 block" [rows]="shipments()" [pageSize]="10" (rowClick)="openDetail($event)">
+  <mg-data-table *ngIf="!loading() && !error() && shipments().length > 0" [rows]="shipments()" [pageSize]="10" (rowClick)="openDetail($event)">
     <ng-template mgColumn header="Batch #" let-s>
       <a routerLink="/batches/{{ s.batchId }}" (click)="$event.stopPropagation()" class="numeric text-xs font-bold text-primary-600 hover:underline">{{ s.batchNumber }}</a>
     </ng-template>
