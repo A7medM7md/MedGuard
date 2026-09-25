@@ -17,7 +17,11 @@ services:
     image: hivemq/hivemq-ce:latest
     container_name: medguard-hivemq
     ports:
-      - "1883:1883"   # MQTT (TCP)
+      # MQTT (TCP). Host port is 11883, not 1883: Windows (Hyper-V/WinNAT) often
+      # reserves a port range covering 1883 (check with
+      # `netsh interface ipv4 show excludedportrange protocol=tcp`), so WSL can't
+      # forward it. Inside the Docker network it's still the standard 1883.
+      - "11883:1883"
     environment:
       JAVA_OPTS: "-Xms256m -Xmx384m"
     mem_limit: 512m
