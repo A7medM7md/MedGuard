@@ -19,6 +19,14 @@ public class SensorReading : BaseEntity
     public double? Longitude { get; private set; }
     public DateTime RecordedAtUtc { get; private set; }
 
+    /// <summary>
+    /// The device-generated id of the message this reading arrived in (null for
+    /// readings posted over HTTP). Unique: the pipeline is at-least-once, so the
+    /// same message can be delivered twice, and this is what makes the second
+    /// delivery a no-op instead of a duplicate reading and a duplicate alert.
+    /// </summary>
+    public Guid? MessageId { get; private set; }
+
     private SensorReading() { }
 
     public SensorReading(
@@ -27,7 +35,9 @@ public class SensorReading : BaseEntity
         decimal temperatureC,
         decimal? humidityPercent = null,
         double? latitude = null,
-        double? longitude = null)
+        double? longitude = null,
+        DateTime? recordedAtUtc = null,
+        Guid? messageId = null)
     {
         if (string.IsNullOrWhiteSpace(deviceId))
             throw new ArgumentException("Device id is required.", nameof(deviceId));
@@ -38,6 +48,10 @@ public class SensorReading : BaseEntity
         HumidityPercent = humidityPercent;
         Latitude = latitude;
         Longitude = longitude;
-        RecordedAtUtc = DateTime.UtcNow;
+        // Readings that come through Kafka carry the time the SENSOR took them,
+        // which can be minutes or hours old if the device was offline and is
+        // flushing a backlog. HTTP readings are stamped on arrival.
+        RecordedAtUtc = recordedAtUtc ?? DateTime.UtcNow;
+        MessageId = messageId;
     }
 }

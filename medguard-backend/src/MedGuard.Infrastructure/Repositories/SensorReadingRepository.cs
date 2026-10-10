@@ -1,4 +1,4 @@
-﻿using MedGuard.Domain.Entities;
+using MedGuard.Domain.Entities;
 using MedGuard.Domain.Interfaces;
 using MedGuard.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -21,5 +21,8 @@ namespace MedGuard.Infrastructure.Repositories
                 .Where(r => r.BatchId == batchId)
                 .OrderByDescending(r => r.RecordedAtUtc)
                 .FirstOrDefaultAsync(ct);
+
+        public Task<bool> ExistsByMessageIdAsync(Guid messageId, CancellationToken ct = default) =>
+            Set.AnyAsync(r => r.MessageId == messageId, ct);
     }
 }

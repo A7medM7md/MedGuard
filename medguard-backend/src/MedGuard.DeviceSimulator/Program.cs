@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 //   dotnet run -- --Simulation:DeviceCount=50 --Simulation:IntervalSeconds=0.5
 //   dotnet run -- watch                               print everything under medguard/devices/#
 //   dotnet run -- watch "medguard/devices/+/status"   only statuses (try other filters!)
+//   dotnet run -- publish <topic> '<payload>'         send one hand-written message
 
 Console.OutputEncoding = Encoding.UTF8; // for "°C"
 
@@ -32,6 +33,13 @@ if (mode == "watch")
 {
     var filter = args.Where(a => !a.StartsWith("--")).Skip(1).FirstOrDefault() ?? Watcher.DefaultFilter;
     await Watcher.RunAsync(mqtt, filter, cts.Token);
+    return;
+}
+
+if (mode == "publish")
+{
+    var positional = args.Where(a => !a.StartsWith("--")).ToArray();
+    await RawPublisher.RunAsync(mqtt, positional[1], positional[2], cts.Token);
     return;
 }
 

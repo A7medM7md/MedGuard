@@ -18,6 +18,13 @@ public interface IColdChainMonitoringService
 {
     Task<Response<SensorReadingDto>> RecordReadingAsync(RecordReadingRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// The event-pipeline entry point. Unlike the HTTP path it never throws for
+    /// expected situations (duplicate, unknown batch); it reports them, so the
+    /// consumer can decide to skip, dead-letter, or retry.
+    /// </summary>
+    Task<IngestResult> IngestAsync(IngestReadingCommand command, CancellationToken ct = default);
+
     Task<Response<List<SensorReadingDto>>> GetHistoryAsync(Guid batchId, int take = 100, CancellationToken ct = default);
 }
 

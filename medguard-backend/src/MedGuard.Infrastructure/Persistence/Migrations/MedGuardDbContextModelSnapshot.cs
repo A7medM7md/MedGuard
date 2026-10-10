@@ -228,6 +228,9 @@ namespace MedGuard.Infrastructure.Persistence.Migrations
                     b.Property<double?>("Longitude")
                         .HasColumnType("float");
 
+                    b.Property<Guid?>("MessageId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("RecordedAtUtc")
                         .HasColumnType("datetime2");
 
@@ -238,6 +241,10 @@ namespace MedGuard.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique()
+                        .HasFilter("[MessageId] IS NOT NULL");
 
                     b.HasIndex("BatchId", "RecordedAtUtc");
 

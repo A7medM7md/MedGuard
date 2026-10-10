@@ -26,6 +26,42 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
             request.Latitude,
             request.Longitude);
 
+        await RecordAsync(batch, reading, ct);
+
+        var result = new SensorReadingDto(reading.Id, reading.BatchId, reading.DeviceId, reading.TemperatureC,
+            reading.HumidityPercent, reading.Latitude, reading.Longitude, reading.RecordedAtUtc);
+
+        return Success(result);
+    }
+
+    public async Task<IngestResult> IngestAsync(IngestReadingCommand command, CancellationToken ct = default)
+    {
+        // Fast path for redeliveries. Not race-proof on its own: two deliveries in
+        // flight at once can both see "false". The unique index on MessageId is
+        // the real guarantee, and the consumer treats its violation as Duplicate.
+        if (await _uow.SensorReadings.ExistsByMessageIdAsync(command.MessageId, ct))
+            return IngestResult.Duplicate;
+
+        var batch = await _uow.Batches.GetByIdAsync(command.BatchId, ct);
+        if (batch is null)
+            return IngestResult.BatchNotFound;
+
+        var reading = new SensorReading(batch.Id,
+            command.DeviceCode,
+            command.TemperatureC,
+            command.HumidityPercent,
+            command.Latitude,
+            command.Longitude,
+            command.RecordedAtUtc,
+            command.MessageId);
+
+        var alert = await RecordAsync(batch, reading, ct);
+        return new IngestResult(IngestOutcome.Recorded, alert?.Severity, alert?.Message);
+    }
+
+    /// <summary>Shared by both entry points, so HTTP and Kafka readings obey exactly the same rules.</summary>
+    private async Task<Alert?> RecordAsync(Batch batch, SensorReading reading, CancellationToken ct)
+    {
         // Warning-margin and auto-quarantine are org-configurable (Settings page) —
         // read the live values rather than hardcoding them here.
         var settings = await _uow.OrgSettings.GetSingletonAsync(ct);
@@ -44,12 +80,11 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
         // then fails as a no-op UPDATE. Adding it explicitly forces the correct Added state.
         if (alert is not null)
             await _uow.Alerts.AddAsync(alert, ct);
+
+        // One SaveChanges = one transaction: the reading, its alert and the batch's
+        // new status are committed together or not at all.
         await _uow.SaveChangesAsync(ct);
-
-        var result = new SensorReadingDto(reading.Id, reading.BatchId, reading.DeviceId, reading.TemperatureC,
-            reading.HumidityPercent, reading.Latitude, reading.Longitude, reading.RecordedAtUtc);
-
-        return Success(result);
+        return alert;
     }
 
     public async Task<Response<List<SensorReadingDto>>> GetHistoryAsync(Guid batchId, int take = 100, CancellationToken ct = default)

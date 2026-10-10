@@ -15,6 +15,13 @@ public class SensorReadingConfiguration : IEntityTypeConfiguration<SensorReading
 
         // Time-series style access pattern: always querying "latest readings for batch X".
         builder.HasIndex(r => new { r.BatchId, r.RecordedAtUtc });
+
+        // Idempotency backstop: two concurrent deliveries of the same message can
+        // both pass an "already exists?" check, but only one can win this index.
+        // Filtered because HTTP readings have no MessageId.
+        builder.HasIndex(r => r.MessageId)
+            .IsUnique()
+            .HasFilter("[MessageId] IS NOT NULL");
     }
 }
 
