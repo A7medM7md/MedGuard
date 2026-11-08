@@ -1,11 +1,12 @@
-import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LucideDynamicIcon, LucideActivity, LucidePackage } from '@lucide/angular';
 import { Subscription, forkJoin, interval, of, startWith, switchMap } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { catchError, filter, map } from 'rxjs/operators';
 
 import { BatchService } from '../../core/services/batch.service';
+import { LiveAlert, LiveFeedService, mapServerBatchStatus } from '../../core/services/live-feed.service';
 import { Batch, Reading } from '../../core/models';
 import { batchStatusMeta, readingLevelMeta, StatusMeta, toneBorder, toneText } from '../../core/status';
 import { readingLevel, ReadingLevel, timeAgo } from '../../core/format';
@@ -15,7 +16,11 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { SparklineComponent } from '../../shared/components/sparkline/sparkline.component';
 
+/** Fallback only: used while the live feed isn't connected (always, in production). */
 const POLL_MS = 10_000;
+/** Same window the batch detail endpoint returns, so the sparkline keeps its shape. */
+const MAX_READINGS = 50;
+const MAX_RECENT_ALERTS = 5;
 const LEVEL_ORDER: Record<ReadingLevel, number> = { critical: 0, warning: 1, safe: 2 };
 const MONITORED_STATUSES: Batch['status'][] = ['active', 'in_transit', 'quarantined'];
 
@@ -44,6 +49,14 @@ export class MonitoringPageComponent implements OnInit, OnDestroy {
   cards = signal<MonitorCard[]>([]);
   loading = signal(true);
   error = signal(false);
+  /** Alerts pushed since the page opened, newest first. */
+  recentAlerts = signal<LiveAlert[]>([]);
+
+  // inject(), not a constructor parameter: with target ES2022, class fields are
+  // initialized BEFORE constructor parameter properties are assigned, so
+  // `feedState = this.liveFeed.state` would read undefined.
+  private liveFeed = inject(LiveFeedService);
+  feedState = this.liveFeed.state;
 
   batchStatusMeta = batchStatusMeta;
   readingLevelMeta = readingLevelMeta;
@@ -54,18 +67,83 @@ export class MonitoringPageComponent implements OnInit, OnDestroy {
   Activity = LucideActivity;
   Package = LucidePackage;
 
-  private pollSub?: Subscription;
+  private subs = new Subscription();
 
   constructor(private batchService: BatchService) {}
 
   ngOnInit(): void {
-    this.pollSub = interval(POLL_MS)
-      .pipe(startWith(0), switchMap(() => this.fetchLive()))
-      .subscribe();
+    void this.liveFeed.connect();
+
+    // Push first, poll as a fallback (ADR 0007). The first tick always loads
+    // the snapshot (pushes only carry CHANGES). After that, a tick only fetches
+    // while the feed isn't live: production, Kafka down, or mid-reconnect.
+    this.subs.add(
+      interval(POLL_MS)
+        .pipe(
+          startWith(-1),
+          filter((tick) => tick === -1 || this.liveFeed.state() !== 'live'),
+          switchMap(() => this.fetchLive()),
+        )
+        .subscribe(),
+    );
+
+    this.subs.add(this.liveFeed.readings$.subscribe((readings) => this.applyReadings(readings)));
+    this.subs.add(this.liveFeed.alerts$.subscribe((alert) => this.applyAlert(alert)));
+    // Anything pushed while the connection was down is gone: resync once.
+    this.subs.add(this.liveFeed.reconnected$.pipe(switchMap(() => this.fetchLive())).subscribe());
   }
 
   ngOnDestroy(): void {
-    this.pollSub?.unsubscribe();
+    this.subs.unsubscribe();
+    void this.liveFeed.disconnect();
+  }
+
+  severityTone(alert: LiveAlert): string {
+    return toneText[alert.severity === 'Critical' ? 'critical' : 'warning'];
+  }
+
+  /** Conflated by the server: at most one (the newest) reading per batch per push. */
+  private applyReadings(readings: Reading[]): void {
+    const byBatch = new Map(readings.map((r) => [r.batchId, r]));
+    let changed = false;
+
+    const cards = this.cards().map((card) => {
+      const reading = byBatch.get(card.batch.id);
+      // Unknown batch (not monitored, or doesn't exist) or already applied: ignore.
+      if (!reading || card.readings.some((r) => r.id === reading.id)) return card;
+      changed = true;
+
+      const next = [...card.readings, reading]
+        .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime())
+        .slice(-MAX_READINGS);
+      const lastReading = next[next.length - 1];
+      return { ...card, readings: next, lastReading, level: readingLevel(card.batch, lastReading) };
+    });
+
+    if (changed) this.cards.set(sortByLevel(cards));
+  }
+
+  private applyAlert(alert: LiveAlert): void {
+    this.recentAlerts.update((list) => [alert, ...list].slice(0, MAX_RECENT_ALERTS));
+
+    const status = mapServerBatchStatus(alert.batchStatus);
+    const known = this.cards().some((c) => c.batch.id === alert.batchId);
+    if (!known) {
+      // A batch we aren't showing yet (created after the snapshot). Rare, so a
+      // full refetch is fine here.
+      if (status && MONITORED_STATUSES.includes(status)) this.fetchLive().subscribe();
+      return;
+    }
+
+    // The status change (e.g. auto-quarantine) arrives with the alert, so the
+    // badge flips without waiting for anything else.
+    if (status) {
+      this.cards.set(
+        sortByLevel(
+          this.cards().map((c) => (c.batch.id === alert.batchId ? { ...c, batch: { ...c.batch, status } } : c)),
+        ),
+      );
+    }
   }
 
   load(): void {
@@ -96,9 +174,7 @@ export class MonitoringPageComponent implements OnInit, OnDestroy {
           ),
         );
 
-        return forkJoin(detailCalls).pipe(
-          map((cards) => [...cards].sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level])),
-        );
+        return forkJoin(detailCalls).pipe(map(sortByLevel));
       }),
       map((cards) => {
         this.cards.set(cards);
@@ -113,4 +189,8 @@ export class MonitoringPageComponent implements OnInit, OnDestroy {
       }),
     );
   }
+}
+
+function sortByLevel(cards: MonitorCard[]): MonitorCard[] {
+  return [...cards].sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
 }

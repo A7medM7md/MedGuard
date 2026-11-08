@@ -4,7 +4,8 @@
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Notifier__Enabled": "true"
       },
       "applicationUrl": "https://localhost:7590;http://localhost:7591"
     }

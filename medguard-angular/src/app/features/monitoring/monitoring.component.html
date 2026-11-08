@@ -1,15 +1,45 @@
 <div class="space-y-4">
   <mg-page-header
     title="Live Monitoring"
-    description="Wall-display view — problem batches sort to the top automatically. Refreshes every 10 seconds."
+    description="Wall-display view — problem batches sort to the top automatically."
     [action]="liveIndicator"
   />
   <ng-template #liveIndicator>
-    <span class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-2xs font-semibold text-muted-foreground">
-      <svg [lucideIcon]="Activity" class="h-3.5 w-3.5 animate-status-pulse text-safe" aria-hidden="true"></svg>
-      Live feed connected
+    <span
+      class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-2xs font-semibold text-muted-foreground"
+      [attr.title]="feedState() === 'live' ? 'Readings and alerts are pushed as they happen' : 'No live feed — refreshing every 10 seconds'"
+    >
+      <svg
+        [lucideIcon]="Activity"
+        class="h-3.5 w-3.5"
+        [ngClass]="{
+          'animate-status-pulse text-safe': feedState() === 'live',
+          'animate-pulse text-warning': feedState() === 'connecting',
+          'text-muted-foreground': feedState() === 'offline'
+        }"
+        aria-hidden="true"
+      ></svg>
+      @switch (feedState()) {
+        @case ('live') { Live · push }
+        @case ('connecting') { Connecting… }
+        @default { Polling · every 10s }
+      }
     </span>
   </ng-template>
+
+  <div *ngIf="recentAlerts().length > 0" class="rounded-lg border border-border bg-card shadow-card" aria-live="polite">
+    <p class="border-b border-border px-4 py-2 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Live alerts</p>
+    <ul class="divide-y divide-border">
+      <li *ngFor="let a of recentAlerts()" class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-3 px-4 py-2 text-xs">
+        <span class="font-bold" [ngClass]="severityTone(a)">{{ a.severity }}</span>
+        <a routerLink="/batches/{{ a.batchId }}" class="truncate text-foreground hover:underline">
+          {{ a.message }}
+          <span *ngIf="a.suppressedCount > 0" class="text-muted-foreground"> (+{{ a.suppressedCount }} similar)</span>
+        </a>
+        <span class="numeric text-2xs text-muted-foreground">{{ timeAgo(a.triggeredAtUtc) }}</span>
+      </li>
+    </ul>
+  </div>
 
   <p *ngIf="error()" class="rounded-lg border border-critical-border bg-critical-bg/40 px-4 py-3 text-sm text-critical">
     Could not load live data. <button type="button" class="font-semibold underline" (click)="load()">Retry</button>
