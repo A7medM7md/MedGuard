@@ -6,6 +6,7 @@ using MedGuard.Application.Interfaces;
 using MedGuard.Contracts.Events;
 using MedGuard.Contracts.Kafka;
 using MedGuard.Domain.Entities;
+using MedGuard.Domain.Exceptions;
 using MedGuard.Domain.Interfaces;
 
 namespace MedGuard.Application.Services;
@@ -53,28 +54,96 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
         if (batch is null)
             return IngestResult.BatchNotFound;
 
-        var reading = new SensorReading(batch.Id,
-            command.DeviceCode,
-            command.TemperatureC,
-            command.HumidityPercent,
-            command.Latitude,
-            command.Longitude,
-            command.RecordedAtUtc,
-            command.MessageId);
-
-        var alert = await RecordAsync(batch, reading, ct);
+        var alert = await RecordAsync(batch, ToReading(command), ct);
         return new IngestResult(IngestOutcome.Recorded, alert?.Severity, alert?.Message);
     }
 
-    /// <summary>Shared by both entry points, so HTTP and Kafka readings obey exactly the same rules.</summary>
-    private async Task<Alert?> RecordAsync(Batch batch, SensorReading reading, CancellationToken ct)
+    public async Task<IReadOnlyList<IngestResult>> IngestBatchAsync(IReadOnlyList<IngestReadingCommand> commands, CancellationToken ct = default)
+    {
+        // 3 queries for the whole batch instead of 3 per reading.
+        var recorded = (await _uow.SensorReadings.GetExistingMessageIdsAsync(
+            commands.Select(c => c.MessageId).Distinct().ToList(), ct)).ToHashSet();
+        var batches = (await _uow.Batches.GetByIdsAsync(
+            commands.Select(c => c.BatchId).Distinct().ToList(), ct)).ToDictionary(b => b.Id);
+        var (warningMarginPercent, autoQuarantineOnBreach) = await GetThresholdsAsync(ct);
+
+        var results = new IngestResult[commands.Count];
+        for (var i = 0; i < commands.Count; i++)
+        {
+            var command = commands[i];
+
+            // Add() is false for ids already in the DB AND for a second copy of
+            // the same message inside this very batch (a redelivery can land in
+            // the same poll as the original).
+            if (!recorded.Add(command.MessageId))
+            {
+                results[i] = IngestResult.Duplicate;
+                continue;
+            }
+
+            if (!batches.TryGetValue(command.BatchId, out var batch))
+            {
+                results[i] = IngestResult.BatchNotFound;
+                continue;
+            }
+
+            try
+            {
+                // In order, against the SAME tracked Batch: reading 7 sees the
+                // quarantine that reading 3 caused, exactly as it would have
+                // one at a time. Same partition = same batch = same order (ADR 0001).
+                var alert = await ApplyAsync(batch, ToReading(command), warningMarginPercent, autoQuarantineOnBreach, ct);
+                results[i] = new IngestResult(IngestOutcome.Recorded, alert?.Severity, alert?.Message);
+            }
+            catch (DomainException ex)
+            {
+                // Safe to carry on only because RecordReading is all-or-nothing:
+                // it threw before touching the aggregate, so nothing half-done is tracked.
+                results[i] = IngestResult.Rejected(ex.Message);
+            }
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        return results;
+    }
+
+    private static SensorReading ToReading(IngestReadingCommand command) => new(command.BatchId,
+        command.DeviceCode,
+        command.TemperatureC,
+        command.HumidityPercent,
+        command.Latitude,
+        command.Longitude,
+        command.RecordedAtUtc,
+        command.MessageId);
+
+    private async Task<(decimal WarningMarginPercent, bool AutoQuarantineOnBreach)> GetThresholdsAsync(CancellationToken ct)
     {
         // Warning-margin and auto-quarantine are org-configurable (Settings page) —
         // read the live values rather than hardcoding them here.
         var settings = await _uow.OrgSettings.GetSingletonAsync(ct);
-        var warningMarginPercent = settings?.WarningMarginPercent ?? 15m;
-        var autoQuarantineOnBreach = settings?.AutoQuarantineOnBreach ?? true;
+        return (settings?.WarningMarginPercent ?? 15m, settings?.AutoQuarantineOnBreach ?? true);
+    }
 
+    /// <summary>Shared by the single-reading entry points (HTTP and Kafka): apply, then save.</summary>
+    private async Task<Alert?> RecordAsync(Batch batch, SensorReading reading, CancellationToken ct)
+    {
+        var (warningMarginPercent, autoQuarantineOnBreach) = await GetThresholdsAsync(ct);
+        var alert = await ApplyAsync(batch, reading, warningMarginPercent, autoQuarantineOnBreach, ct);
+
+        // One SaveChanges = one transaction: the reading, its alert, the batch's
+        // new status and the outbox event are committed together or not at all.
+        await _uow.SaveChangesAsync(ct);
+        return alert;
+    }
+
+    /// <summary>
+    /// The one place a reading meets the domain, used by EVERY path (HTTP, Kafka
+    /// single, Kafka batch), so they all obey exactly the same rules. Stages
+    /// changes only; the caller decides when to SaveChanges.
+    /// </summary>
+    private async Task<Alert?> ApplyAsync(Batch batch, SensorReading reading,
+        decimal warningMarginPercent, bool autoQuarantineOnBreach, CancellationToken ct)
+    {
         // All breach-evaluation and alert-raising logic lives inside the aggregate
         // now — this service just hands the reading (and the current settings) to
         // the batch and persists.
@@ -107,9 +176,6 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
                 alert.TriggeredAtUtc));
         }
 
-        // One SaveChanges = one transaction: the reading, its alert, the batch's
-        // new status and the outbox event are committed together or not at all.
-        await _uow.SaveChangesAsync(ct);
         return alert;
     }
 

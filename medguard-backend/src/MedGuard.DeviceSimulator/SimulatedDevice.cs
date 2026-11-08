@@ -44,7 +44,11 @@ public sealed class SimulatedDevice
         // "thundering herd"; real fleets see this after a broker restart.
         await Task.Delay(_random.Next(0, 1000), ct);
 
-        var interval = TimeSpan.FromSeconds(_sim.IntervalSeconds);
+        // A fixed schedule, not "publish, then sleep": with a sleep, a slow broker
+        // stretches every cycle and the generator quietly backs off, hiding the
+        // exact slowdown we're trying to measure ("coordinated omission"). Real
+        // sensors don't wait for the backend either; they sample on a clock.
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_sim.IntervalSeconds));
         while (!ct.IsCancellationRequested)
         {
             try
@@ -54,7 +58,7 @@ public sealed class SimulatedDevice
                 if (++_tick % _sim.HeartbeatEvery == 0)
                     await PublishHeartbeatAsync(ct);
 
-                await Task.Delay(interval, ct);
+                await timer.WaitForNextTickAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -65,6 +69,7 @@ public sealed class SimulatedDevice
                 // A real device would buffer readings locally while offline and
                 // flush them on reconnect. That's why RecordedAtUtc is set by the
                 // device, not the server.
+                Interlocked.Increment(ref FleetStats.Failed);
                 Log.Warn(Code, $"publish failed: {ex.Message}");
             }
         }
@@ -72,9 +77,16 @@ public sealed class SimulatedDevice
         await ShutdownGracefullyAsync();
     }
 
+    private bool _countedAsConnected;
+
     private async Task EnsureConnectedAsync(CancellationToken ct)
     {
         if (_client.IsConnected) return;
+        if (_countedAsConnected)
+        {
+            Interlocked.Decrement(ref FleetStats.Connected);
+            _countedAsConnected = false;
+        }
 
         var options = new MqttClientOptionsBuilder()
             .WithTcpServer(_mqtt.Host, _mqtt.Port)
@@ -120,6 +132,8 @@ public sealed class SimulatedDevice
         // so the status topic always holds the device's latest known state.
         await PublishAsync(MqttTopics.Status(Code), DeviceConnectionStatus.Online,
             MqttQualityOfServiceLevel.AtLeastOnce, retain: true, ct);
+        Interlocked.Increment(ref FleetStats.Connected);
+        _countedAsConnected = true;
         Log.Info(Code, "connected");
     }
 
@@ -142,8 +156,10 @@ public sealed class SimulatedDevice
         // QoS 1 (at least once): the broker must PUBACK, or the client resends.
         // A reading must never be silently lost, and a rare duplicate is fine
         // because it's deduplicated by MessageId later.
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         await PublishAsync(MqttTopics.Telemetry(Code), JsonSerializer.Serialize(reading, ContractJson.Options),
             MqttQualityOfServiceLevel.AtLeastOnce, retain: false, ct);
+        FleetStats.AddPublish(System.Diagnostics.Stopwatch.GetElapsedTime(started));
 
         var marker = _excursionTicksLeft > 0 ? "  <- EXCURSION" : "";
         Log.Info(Code, $"{reading.TemperatureC,6:0.00} °C{marker}");

@@ -85,34 +85,51 @@ public class Batch : BaseEntity
         if (reading.BatchId != Id)
             throw new ArgumentException("This reading belongs to a different batch.", nameof(reading));
 
+        // All-or-nothing: decide everything and run every check that can throw
+        // FIRST, and only then change state. Previously the reading and alert were
+        // added before Quarantine() could throw (Delivered batch), which left the
+        // aggregate half-modified. Harmless with one DbContext per reading; fatal
+        // when a batch of readings shares one unit of work (ADR 0008).
+        Alert? alert = null;
+        var quarantine = false;
+        if (SafeRange.IsBreach(reading.TemperatureC))
+        {
+            var overBy = SafeRange.DistanceOutsideRange(reading.TemperatureC);
+            var toleranceC = SafeRange.RangeWidth * warningMarginPercent / 100m;
+            var severity = overBy <= toleranceC ? AlertSeverity.Warning : AlertSeverity.Critical;
+
+            var message = severity == AlertSeverity.Critical
+                ? $"CRITICAL: Batch {BatchNumber} recorded {reading.TemperatureC}C — outside safe range [{SafeRange}]."
+                  + (autoQuarantineOnBreach ? " Batch quarantined." : " Auto-quarantine is disabled — review and quarantine manually if needed.")
+                : $"WARNING: Batch {BatchNumber} recorded {reading.TemperatureC}C — approaching the edge of its safe range [{SafeRange}].";
+
+            quarantine = severity == AlertSeverity.Critical && autoQuarantineOnBreach && Status != BatchStatus.Recalled;
+            if (quarantine)
+                EnsureCanBeQuarantined();
+
+            alert = Alert.Raise(Id, reading.Id, severity, message);
+        }
+
+        // Nothing below can throw.
         _sensorReadings.Add(reading);
-
-        if (!SafeRange.IsBreach(reading.TemperatureC))
-            return null;
-
-        var overBy = SafeRange.DistanceOutsideRange(reading.TemperatureC);
-        var toleranceC = SafeRange.RangeWidth * warningMarginPercent / 100m;
-        var severity = overBy <= toleranceC ? AlertSeverity.Warning : AlertSeverity.Critical;
-
-        var message = severity == AlertSeverity.Critical
-            ? $"CRITICAL: Batch {BatchNumber} recorded {reading.TemperatureC}C — outside safe range [{SafeRange}]."
-              + (autoQuarantineOnBreach ? " Batch quarantined." : " Auto-quarantine is disabled — review and quarantine manually if needed.")
-            : $"WARNING: Batch {BatchNumber} recorded {reading.TemperatureC}C — approaching the edge of its safe range [{SafeRange}].";
-
-        var alert = Alert.Raise(Id, reading.Id, severity, message);
-        _alerts.Add(alert);
-
-        if (severity == AlertSeverity.Critical && autoQuarantineOnBreach && Status != BatchStatus.Recalled)
-            Quarantine();
+        if (alert is not null)
+            _alerts.Add(alert);
+        if (quarantine)
+            Status = BatchStatus.Quarantined;
 
         return alert;
     }
 
     public void Quarantine()
     {
+        EnsureCanBeQuarantined();
+        Status = BatchStatus.Quarantined;
+    }
+
+    private void EnsureCanBeQuarantined()
+    {
         if (Status is BatchStatus.Delivered or BatchStatus.Recalled)
             throw new InvalidBatchStateTransitionException(BatchNumber, Status.ToString(), "be quarantined");
-        Status = BatchStatus.Quarantined;
     }
 
     public void ClearQuarantine()

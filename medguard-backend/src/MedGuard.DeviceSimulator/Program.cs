@@ -43,20 +43,28 @@ if (mode == "publish")
     return;
 }
 
+// Device i reports for batch SIM-{((i-1) % batchCount) + 1}. With the default
+// (one batch per device) that's its own code, exactly as before.
+var batchCount = sim.BatchCount > 0 ? sim.BatchCount : sim.DeviceCount;
 var bindings = sim.Devices.Count > 0
     ? sim.Devices
     : Enumerable.Range(1, sim.DeviceCount)
-        .Select(i => $"SIM-{i:0000}")
-        .Select(code => new DeviceBinding(code, StableGuid(code)))
+        .Select(i => new DeviceBinding($"SIM-{i:0000}", StableGuid($"SIM-{(i - 1) % batchCount + 1:0000}")))
         .ToList();
 
-Console.WriteLine($"Starting {bindings.Count} device(s) -> {mqtt.Host}:{mqtt.Port}, " +
-                  $"a reading every {sim.IntervalSeconds}s. Ctrl+C = clean shutdown, close window = crash (LWT).\n");
+Log.Quiet = sim.Quiet;
+Console.WriteLine($"Starting {bindings.Count} device(s) on {bindings.Select(b => b.BatchId).Distinct().Count()} batch(es) " +
+                  $"-> {mqtt.Host}:{mqtt.Port}, a reading every {sim.IntervalSeconds}s. " +
+                  "Ctrl+C = clean shutdown, close window = crash (LWT).\n");
 
 var devices = bindings.Select(b => new SimulatedDevice(b, mqtt, sim)).ToList();
+var report = FleetStats.ReportAsync(cts.Token);
 await Task.WhenAll(devices.Select(d => d.RunAsync(cts.Token)));
+await report;
 
-// Same device code gives the same batch id on every run, so restarting the
-// simulator keeps each device's readings on the same batch (and later, the
-// same Kafka partition).
+// Same seed gives the same batch id on every run, so restarting the simulator
+// keeps each device's readings on the same batch (and the same Kafka partition).
+// It's the same value as SQL Server's CAST(HASHBYTES('MD5', seed) AS uniqueidentifier)
+// (both read the 16 bytes in the same mixed-endian layout), which is how
+// loadtest/seed-batches.sql creates matching batches.
 static Guid StableGuid(string seed) => new(MD5.HashData(Encoding.UTF8.GetBytes(seed)));

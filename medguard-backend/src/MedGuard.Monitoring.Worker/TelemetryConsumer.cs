@@ -60,11 +60,12 @@ public sealed class TelemetryConsumer : BackgroundService
             KafkaTopics.SensorReadings, _options.GroupId, _options.InstanceId);
 
         var nextReport = DateTime.UtcNow.AddSeconds(10);
+        var batch = new List<ConsumeResult<string, byte[]>>(_options.MaxBatchSize);
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                var message = consumer.Consume(TimeSpan.FromMilliseconds(500));
+                CollectBatch(consumer, batch);
 
                 if (DateTime.UtcNow >= nextReport)
                 {
@@ -72,20 +73,24 @@ public sealed class TelemetryConsumer : BackgroundService
                     nextReport = DateTime.UtcNow.AddSeconds(10);
                 }
 
-                if (message is null) continue;
+                if (batch.Count == 0) continue;
 
-                var (disposition, retryAfter) = await _handler.HandleAsync(message, ct);
-                if (disposition == Disposition.Done)
+                var (doneCount, retryAfter) = await _handler.HandleBatchAsync(batch, ct);
+
+                // The finished prefix: store offsets (only the last one per
+                // partition matters, but storing each is cheap and in order).
+                for (var i = 0; i < doneCount; i++)
+                    consumer.StoreOffset(batch[i]);
+
+                if (doneCount < batch.Count)
                 {
-                    consumer.StoreOffset(message);
-                }
-                else
-                {
-                    // Rewind this partition to the failed message, so the next
-                    // Consume() returns it again. We keep calling Consume() (no
-                    // blocking sleep longer than 30s) because a consumer that stops
-                    // polling for max.poll.interval.ms (5 min) is kicked out of the group.
-                    consumer.Seek(message.TopicPartitionOffset);
+                    // Rewind every partition to its first unfinished message, so
+                    // the next Consume() returns them again. We keep calling
+                    // Consume() (no blocking sleep longer than 30s) because a consumer
+                    // that stops polling for max.poll.interval.ms (5 min) is kicked
+                    // out of the group.
+                    foreach (var first in batch.Skip(doneCount).GroupBy(m => m.TopicPartition).Select(g => g.First()))
+                        consumer.Seek(first.TopicPartitionOffset);
                     await Task.Delay(retryAfter, ct);
                 }
             }
@@ -102,6 +107,32 @@ public sealed class TelemetryConsumer : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Blocks up to 500ms for the FIRST message, then tops the batch up for at most
+    /// MaxBatchWaitMs. With a backlog, librdkafka has already prefetched thousands
+    /// of messages, so the batch fills in microseconds. When traffic is quiet, a lone
+    /// message waits at most 20ms for company.
+    /// </summary>
+    private void CollectBatch(IConsumer<string, byte[]> consumer, List<ConsumeResult<string, byte[]>> batch)
+    {
+        batch.Clear();
+        var first = consumer.Consume(TimeSpan.FromMilliseconds(500));
+        if (first is null) return;
+        batch.Add(first);
+
+        var deadline = DateTime.UtcNow.AddMilliseconds(_options.MaxBatchWaitMs);
+        while (batch.Count < _options.MaxBatchSize)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero) break;
+            var next = consumer.Consume(remaining);
+            if (next is null) break;
+            batch.Add(next);
+        }
+    }
+
+    private long _lastDone;
+
     private void ReportStats(IConsumer<string, byte[]> consumer)
     {
         // Lag = how far behind the newest message we are. Its trend is THE
@@ -117,9 +148,14 @@ public sealed class TelemetryConsumer : BackgroundService
         }
 
         var s = _handler.Stats;
+        // Messages FINISHED per second (recorded, duplicate or dead-lettered),
+        // i.e. this instance's throughput. Compare it with the offered load.
+        var done = s.Recorded + s.Duplicates + s.DeadLettered;
+        var rate = (done - _lastDone) / 10.0;
+        _lastDone = done;
         _log.LogInformation(
-            "partitions=[{Partitions}] lag={Lag} recorded={Recorded} warning={Warning} critical={Critical} duplicates={Duplicates} dlq={Dlq} retries={Retries} avg-db={Db} avg-dlq={DlqTime}",
-            string.Join(",", consumer.Assignment.Select(p => p.Partition.Value).Order()), lag,
+            "partitions=[{Partitions}] lag={Lag} rate={Rate:0.0}/s batches={Batches} fallbacks={Fallbacks} recorded={Recorded} warning={Warning} critical={Critical} duplicates={Duplicates} dlq={Dlq} retries={Retries} avg-db={Db} avg-dlq={DlqTime}",
+            string.Join(",", consumer.Assignment.Select(p => p.Partition.Value).Order()), lag, rate, s.Batches, s.Fallbacks,
             s.Recorded, s.Warning, s.Critical, s.Duplicates, s.DeadLettered, s.Retries, s.Db.TakeAverage(), s.Dlq.TakeAverage());
     }
 }

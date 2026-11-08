@@ -24,5 +24,13 @@ namespace MedGuard.Infrastructure.Repositories
 
         public Task<bool> ExistsByMessageIdAsync(Guid messageId, CancellationToken ct = default) =>
             Set.AnyAsync(r => r.MessageId == messageId, ct);
+
+        // EF8 sends the id list as ONE JSON parameter (OPENJSON), not N parameters,
+        // so the SQL text (and its cached plan) is the same whatever the batch size.
+        public async Task<IReadOnlyList<Guid>> GetExistingMessageIdsAsync(IReadOnlyCollection<Guid> messageIds, CancellationToken ct = default) =>
+            await Set.AsNoTracking()
+                .Where(r => r.MessageId != null && messageIds.Contains(r.MessageId.Value))
+                .Select(r => r.MessageId!.Value)
+                .ToListAsync(ct);
     }
 }

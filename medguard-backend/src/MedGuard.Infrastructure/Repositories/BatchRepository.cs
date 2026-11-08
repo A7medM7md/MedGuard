@@ -16,6 +16,9 @@ public class BatchRepository : EfRepository<Batch>, IBatchRepository
     public async Task<IReadOnlyList<Batch>> GetByStatusAsync(BatchStatus status, CancellationToken ct = default) =>
         await Set.AsNoTracking().Where(b => b.Status == status).ToListAsync(ct);
 
+    public async Task<IReadOnlyList<Batch>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default) =>
+        await Set.Where(b => ids.Contains(b.Id)).ToListAsync(ct);
+
     public async Task<Batch?> GetWithHistoryAsync(Guid batchId, CancellationToken ct = default) =>
         await Set
             .Include(b => b.SensorReadings)

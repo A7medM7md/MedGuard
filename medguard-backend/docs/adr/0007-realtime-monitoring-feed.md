@@ -58,14 +58,16 @@ pushes to browsers through a typed SignalR hub, `MonitoringHub` (`/hubs/monitori
 
 ## Verification
 
-_To be filled in by the phase-5 exercise._
+Server side measured locally on 2026-11-08 (20 devices, 10% excursions, ~4 min,
+no browser connected). The browser rows haven't been run yet.
 
 | Scenario | Expected | Result |
 |---|---|---|
 | Steady state, 3 devices | indicator "Live · push"; temperatures move ~1/s; Network tab shows no polling | |
 | Excursion → auto-quarantine | badge flips to Quarantined and alert appears in <1s of the device publish | |
-| Sustained breach (~2 criticals/s) | 1 push per 30s per batch, with `(+N similar)` | |
-| Notifier's group in Kafka UI | a `notifier-…` group on both topics, separate from `monitoring` | |
+| Sustained breach | 1 push per 30s per (batch, severity, status), with `(+N similar)` | 2381 alert events → **217 pushed, 2164 throttled (91%)**, 0 duplicates |
+| Readings conflation | ≤1 push per flush interval | 4073 readings → **195 pushes** (~1/s) |
+| Notifier's group | a `notifier-…` group on both topics, separate from `monitoring` | `notifier-AHMED-ELGEBALY-<guid>` consuming `batch-alerts` + `sensor-readings` |
 | Kafka stopped | indicator stays live (hub is up) but nothing moves: see Consequences | |
 | API restarted | client reconnects automatically, resyncs once, back to live | |
 | `environment.monitoringHubUrl = null` | "Polling · every 10s", same behaviour as before this ADR | |

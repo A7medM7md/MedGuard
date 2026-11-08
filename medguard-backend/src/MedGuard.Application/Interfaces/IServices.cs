@@ -25,6 +25,13 @@ public interface IColdChainMonitoringService
     /// </summary>
     Task<IngestResult> IngestAsync(IngestReadingCommand command, CancellationToken ct = default);
 
+    /// <summary>
+    /// Many readings, one transaction: one existence query, one batch load, one
+    /// SaveChanges. Results come back in input order. A domain rejection only
+    /// affects its own reading (Rejected); any exception means NOTHING was saved.
+    /// </summary>
+    Task<IReadOnlyList<IngestResult>> IngestBatchAsync(IReadOnlyList<IngestReadingCommand> commands, CancellationToken ct = default);
+
     Task<Response<List<SensorReadingDto>>> GetHistoryAsync(Guid batchId, int take = 100, CancellationToken ct = default);
 }
 

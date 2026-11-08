@@ -116,3 +116,5 @@ ehthumbs.db
 .claude/
 
 appsettings.Production.json
+# Load-test run output (loadtest/drain-test.sh)
+loadtest/logs/

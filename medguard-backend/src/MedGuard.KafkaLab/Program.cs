@@ -9,6 +9,8 @@ using Confluent.Kafka.Admin;
 //   dotnet run -- metadata
 //   dotnet run -- produce <topic> <count> [keys=a,b,c | keys=none] [partitioner=murmur2|crc32]
 //   dotnet run -- consume <topic> <group> <name> [commit=manual|auto|none] [crash-after=N] [delay-ms=N]
+//   dotnet run -- fill-readings <count> [batches=1000] [temp=12.5] [dup=true] [unknown=N]
+//                                  load-test backlog / batch-path failure cases (ADR 0008)
 
 Console.OutputEncoding = Encoding.UTF8;
 const string Bootstrap = "localhost:9092";
@@ -22,6 +24,9 @@ switch (cmd)
     case "metadata": Metadata(); break;
     case "produce": await Produce(pos[1], int.Parse(pos[2])); break;
     case "consume": Consume(pos[1], pos[2], pos[3]); break;
+    case "fill-readings": await FillReadings(int.Parse(pos[1]), int.Parse(opts.GetValueOrDefault("batches", "1000")),
+        opts.TryGetValue("temp", out var temp) ? decimal.Parse(temp, System.Globalization.CultureInfo.InvariantCulture) : null,
+        opts.GetValueOrDefault("dup") == "true", int.Parse(opts.GetValueOrDefault("unknown", "0"))); break;
     default:
         Console.WriteLine("usage: metadata | produce <topic> <count> [keys=..] [partitioner=..] | consume <topic> <group> <name> [commit=..] [crash-after=N] [delay-ms=N]");
         break;
@@ -167,4 +172,82 @@ static void Log(string who, string msg, ConsoleColor color = ConsoleColor.Gray)
         Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} [{who}] {msg}");
         Console.ResetColor();
     }
+}
+
+// Drain test (ADR 0008): put N valid readings on sensor-readings exactly as the
+// bridge would (same key, same headers), with no MQTT involved. Then start
+// workers and time how long they take to reach lag 0. That measures the
+// CONSUMER's maximum throughput in isolation, without needing HiveMQ, the bridge
+// and 1000 simulated devices (and their RAM) running at the same time.
+// Batch ids match loadtest/seed-batches.sql: MD5("SIM-0001")... read as a GUID.
+//
+// Failure-case knobs, for checking the BATCH path's correctness:
+//   temp=12.5   every reading at this temperature (12.5 = critical for a 2-8 range)
+//   dup=true    send every message twice, like a redelivery
+//   unknown=N   N extra readings for a batch that doesn't exist (they should be dead-lettered)
+async Task FillReadings(int count, int batches, decimal? fixedTemp = null, bool duplicate = false, int unknown = 0)
+{
+    var batchIds = Enumerable.Range(1, batches)
+        .Select(i => new Guid(System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes($"SIM-{i:0000}"))))
+        .ToArray();
+
+    using var producer = new ProducerBuilder<string, byte[]>(new ProducerConfig
+    {
+        BootstrapServers = Bootstrap,
+        Acks = Acks.All,
+        EnableIdempotence = true,
+        // Throughput mode: wait a little to fill big batches, and compress them.
+        LingerMs = 20,
+        BatchSize = 1_000_000,
+        CompressionType = CompressionType.Lz4,
+    }).Build();
+
+    var random = new Random(42);
+    var started = System.Diagnostics.Stopwatch.StartNew();
+    for (var i = 0; i < count; i++)
+    {
+        var batchId = batchIds[i % batches];
+        var reading = new MedGuard.Contracts.Devices.DeviceTelemetry(
+            Guid.NewGuid(), $"SIM-{i % batches + 1:0000}", batchId,
+            // Always safe (2-8 °C range): this measures the plain recording path.
+            fixedTemp ?? Math.Round(4.0m + (decimal)random.NextDouble() * 2, 2), 50m, 30.05, 31.24, DateTime.UtcNow);
+
+        var message = new Message<string, byte[]>
+        {
+            Key = batchId.ToString(),
+            Value = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(reading, MedGuard.Contracts.Devices.ContractJson.Options),
+            Headers = new Headers
+            {
+                { MedGuard.Contracts.Kafka.KafkaHeaders.MessageId, Encoding.UTF8.GetBytes(reading.MessageId.ToString()) },
+                { MedGuard.Contracts.Kafka.KafkaHeaders.Source, "kafkalab-fill"u8.ToArray() },
+            },
+        };
+
+        Send(message);
+        if (duplicate) Send(message);
+    }
+
+    for (var i = 0; i < unknown; i++)
+    {
+        var orphan = new MedGuard.Contracts.Devices.DeviceTelemetry(Guid.NewGuid(), "SIM-GHOST", Guid.NewGuid(),
+            5m, 50m, null, null, DateTime.UtcNow);
+        Send(new Message<string, byte[]>
+        {
+            Key = orphan.BatchId.ToString(),
+            Value = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(orphan, MedGuard.Contracts.Devices.ContractJson.Options),
+        });
+    }
+    producer.Flush(TimeSpan.FromSeconds(30));
+
+    // Produce (not ProduceAsync): fire into librdkafka's queue, no Task per
+    // message. When the local queue is full, wait for it to drain and retry.
+    void Send(Message<string, byte[]> m)
+    {
+        while (true)
+        {
+            try { producer.Produce(MedGuard.Contracts.Kafka.KafkaTopics.SensorReadings, m); return; }
+            catch (ProduceException<string, byte[]> e) when (e.Error.Code == ErrorCode.Local_QueueFull) { producer.Poll(TimeSpan.FromMilliseconds(50)); }
+        }
+    }
+    Console.WriteLine($"filled {count} readings over {batches} batches in {started.Elapsed.TotalSeconds:0.0}s ({count / started.Elapsed.TotalSeconds:0}/s)");
 }

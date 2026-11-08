@@ -87,13 +87,7 @@ public sealed class TelemetryMessageHandler
             {
                 case IngestOutcome.Recorded:
                     Stats.Recorded++;
-                    if (result.RaisedAlert is { } severity)
-                    {
-                        if (severity == AlertSeverity.Critical) Stats.Critical++; else Stats.Warning++;
-                        _log.Log(severity == AlertSeverity.Critical ? LogLevel.Error : LogLevel.Warning,
-                            "{Severity} p{Partition}@{Offset}: {Message}",
-                            severity, message.Partition.Value, message.Offset.Value, result.AlertMessage);
-                    }
+                    CountAlert(result, message);
                     break;
                 case IngestOutcome.Duplicate:
                     Stats.Duplicates++;
@@ -138,6 +132,140 @@ public sealed class TelemetryMessageHandler
                 message.Partition.Value, message.Offset.Value, attempt);
             return (Disposition.Retry, TimeSpan.FromSeconds(1));
         }
+    }
+
+    /// <summary>
+    /// Handles a batch in ONE transaction (ADR 0008). Returns how many messages,
+    /// from the start of the list, are finished; the caller stores their offsets
+    /// and re-reads the rest after <c>RetryAfter</c>. "A prefix is done" stays
+    /// correct because the list keeps each partition's order.
+    ///
+    /// Failure handling keeps the single path's buckets:
+    ///   per-message problems (bad JSON, unknown batch, domain rejection) -> DLQ that one message
+    ///   transient (DB down)  -> nothing was committed: retry the whole batch
+    ///   anything else        -> fall back to one-at-a-time for this batch, which
+    ///                           sorts out the culprit with the per-message rules
+    /// </summary>
+    public async Task<(int DoneCount, TimeSpan RetryAfter)> HandleBatchAsync(
+        IReadOnlyList<ConsumeResult<string, byte[]>> messages, CancellationToken ct)
+    {
+        if (messages.Count == 1)
+        {
+            var (disposition, retryAfter) = await HandleAsync(messages[0], ct);
+            return (disposition == Disposition.Done ? 1 : 0, retryAfter);
+        }
+
+        // 1. Parse. Bad JSON can't be fixed by retrying; note it, keep going.
+        var parsed = new DeviceTelemetry?[messages.Count];
+        var commands = new List<IngestReadingCommand>(messages.Count);
+        var commandIndex = new int[messages.Count];
+        for (var i = 0; i < messages.Count; i++)
+        {
+            commandIndex[i] = -1;
+            try { parsed[i] = JsonSerializer.Deserialize<DeviceTelemetry>(messages[i].Message.Value, ContractJson.Options); }
+            catch (JsonException) { }
+            if (parsed[i] is not { } t) continue;
+
+            commandIndex[i] = commands.Count;
+            commands.Add(new IngestReadingCommand(t.MessageId, t.BatchId, t.DeviceCode, t.TemperatureC,
+                t.HumidityPercent, t.Latitude, t.Longitude, t.RecordedAtUtc));
+        }
+
+        // 2. One transaction for every parseable message.
+        IReadOnlyList<IngestResult> results = [];
+        if (commands.Count > 0)
+        {
+            try
+            {
+                await using var scope = _scopes.CreateAsyncScope();
+                var service = scope.ServiceProvider.GetRequiredService<IColdChainMonitoringService>();
+                var started = Stopwatch.GetTimestamp();
+                results = await service.IngestBatchAsync(commands, ct);
+                Stats.Db.Add(Stopwatch.GetElapsedTime(started), commands.Count);
+                Stats.Batches++;
+                _batchAttempt = 0;
+            }
+            catch (Exception ex) when (IsTransient(ex) && !IsUniqueViolation(ex) && !ct.IsCancellationRequested)
+            {
+                // Rolled back: nothing from this batch was saved. Retry all of it.
+                var delay = TimeSpan.FromSeconds(Math.Min(Math.Pow(2, _batchAttempt++), 30));
+                Stats.Retries++;
+                _log.LogWarning("Transient failure on a batch of {Count}, retrying in {Delay}s: {Error}",
+                    messages.Count, delay.TotalSeconds, Innermost(ex).Message);
+                return (0, delay);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // E.g. a unique-index race with another instance: we can't tell
+                // which message caused it. One at a time, each gets classified
+                // on its own (duplicate / poison / retry).
+                Stats.Fallbacks++;
+                _log.LogWarning("Batch of {Count} failed ({Error}); falling back to one-at-a-time",
+                    messages.Count, Innermost(ex).Message);
+                for (var i = 0; i < messages.Count; i++)
+                {
+                    var (disposition, retryAfter) = await HandleAsync(messages[i], ct);
+                    if (disposition == Disposition.Retry)
+                        return (i, retryAfter);
+                }
+                return (messages.Count, TimeSpan.Zero);
+            }
+        }
+
+        // 3. Committed. Count outcomes and dead-letter the per-message failures.
+        //    If a DLQ produce fails, everything from there on is re-read later;
+        //    re-recording is harmless (MessageId dedupe).
+        for (var i = 0; i < messages.Count; i++)
+        {
+            string? dlqReason = null;
+            if (commandIndex[i] < 0)
+            {
+                dlqReason = "undeserializable";
+            }
+            else
+            {
+                var result = results[commandIndex[i]];
+                switch (result.Outcome)
+                {
+                    case IngestOutcome.Recorded:
+                        Stats.Recorded++;
+                        CountAlert(result, messages[i]);
+                        break;
+                    case IngestOutcome.Duplicate:
+                        Stats.Duplicates++;
+                        break;
+                    case IngestOutcome.BatchNotFound:
+                        dlqReason = $"batch {parsed[i]!.BatchId} not found";
+                        break;
+                    case IngestOutcome.Rejected:
+                        dlqReason = $"rejected by domain: {result.Error}";
+                        break;
+                }
+            }
+
+            if (dlqReason is not null)
+            {
+                var (disposition, retryAfter) = await DeadLetterAsync(messages[i], dlqReason, ct);
+                if (disposition == Disposition.Retry)
+                    return (i, retryAfter);
+            }
+        }
+
+        return (messages.Count, TimeSpan.Zero);
+    }
+
+    private int _batchAttempt;
+
+    private void CountAlert(IngestResult result, ConsumeResult<string, byte[]> message)
+    {
+        if (result.RaisedAlert is not { } severity) return;
+        if (severity == AlertSeverity.Critical) Stats.Critical++; else Stats.Warning++;
+
+        // Debug, not Error: an alert is a business event that's already stored
+        // and published (outbox). At Error level, the load test showed one log
+        // line per breaching reading, hundreds per second (ADR 0008).
+        _log.LogDebug("{Severity} p{Partition}@{Offset}: {Message}",
+            severity, message.Partition.Value, message.Offset.Value, result.AlertMessage);
     }
 
     private async Task<(Disposition, TimeSpan)> DeadLetterAsync(
@@ -199,7 +327,7 @@ public sealed class TelemetryMessageHandler
 
 public sealed class ConsumerStats
 {
-    public long Recorded, Warning, Critical, Duplicates, DeadLettered, Retries;
+    public long Recorded, Warning, Critical, Duplicates, DeadLettered, Retries, Batches, Fallbacks;
 
     /// <summary>Time spent in the database (IngestAsync) and in DLQ produces.</summary>
     public readonly Timing Db = new(), Dlq = new();
@@ -212,6 +340,9 @@ public sealed class Timing
     private TimeSpan _total;
 
     public void Add(TimeSpan elapsed) { _count++; _total += elapsed; }
+
+    /// <summary>One measurement covering <paramref name="items"/> messages, so the average stays per message.</summary>
+    public void Add(TimeSpan elapsed, int items) { _count += items; _total += elapsed; }
 
     public string TakeAverage()
     {

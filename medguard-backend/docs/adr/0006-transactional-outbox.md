@@ -63,11 +63,12 @@ Details:
 
 ## Verification
 
-_To be filled in by the phase-5 exercise (see below)._
+Local run, 2026-11-08: 20 devices, 10% excursion chance, 1 worker, ~4 min. Rows
+without a result haven't been run yet.
 
 | Scenario | Expected | Result |
 |---|---|---|
-| Excursions with Kafka up | each alert → 1 row → published within ~0.5s, `ProcessedAtUtc` set | |
+| Excursions with Kafka up | each alert → 1 row → published within ~0.5s, `ProcessedAtUtc` set | 2523 alerts committed; `batch-alerts` holds 741+1161+615 = **2517** events; the other **6** were still pending when the worker was killed. Nothing lost, nothing duplicated |
 | Kafka stopped mid-stream | rows accumulate as pending, `Attempts`/`LastError` grow, readings still commit | |
 | Kafka restarted | backlog drains; event count on `batch-alerts` = alert rows | |
 | Worker killed (`taskkill /F`) mid-publish | after restart, every alert is in the topic at least once; duplicates share `message-id` | |

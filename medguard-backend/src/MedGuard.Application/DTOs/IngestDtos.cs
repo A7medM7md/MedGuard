@@ -20,10 +20,14 @@ public enum IngestOutcome
     Duplicate,
     /// <summary>The batch doesn't exist. No retry will fix that, so it's dead-lettered.</summary>
     BatchNotFound,
+    /// <summary>The domain refused it (e.g. a critical breach on a Delivered batch). Only
+    /// returned by the batch path; the single path throws the DomainException instead.</summary>
+    Rejected,
 }
 
-public record IngestResult(IngestOutcome Outcome, AlertSeverity? RaisedAlert = null, string? AlertMessage = null)
+public record IngestResult(IngestOutcome Outcome, AlertSeverity? RaisedAlert = null, string? AlertMessage = null, string? Error = null)
 {
     public static readonly IngestResult Duplicate = new(IngestOutcome.Duplicate);
     public static readonly IngestResult BatchNotFound = new(IngestOutcome.BatchNotFound);
+    public static IngestResult Rejected(string error) => new(IngestOutcome.Rejected, Error: error);
 }
