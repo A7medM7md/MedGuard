@@ -10,6 +10,7 @@ public static class KafkaTopics
     /// parked for a human instead of blocking their partition.</summary>
     public const string SensorReadingsDlq = "sensor-readings.dlq";
 
+    /// <summary>Alert events (<c>BatchAlertRaised</c>), published via the outbox, keyed by BatchId.</summary>
     public const string BatchAlerts = "batch-alerts";
 }
 
@@ -25,4 +26,10 @@ public static class KafkaHeaders
     public const string MqttTopic = "mqtt-topic";
     public const string ReceivedAtUtc = "received-at-utc";
     public const string DlqReason = "dlq-reason";
+
+    /// <summary>The contract's type name, e.g. <c>BatchAlertRaised</c>.</summary>
+    public const string EventType = "event-type";
+
+    /// <summary>When the event happened (the outbox row's time), not when it was published.</summary>
+    public const string OccurredAtUtc = "occurred-at-utc";
 }

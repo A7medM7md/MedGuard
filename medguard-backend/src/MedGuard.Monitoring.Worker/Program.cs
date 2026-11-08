@@ -39,4 +39,10 @@ builder.Services.AddSingleton<IProducer<string, byte[]>>(sp =>
 builder.Services.AddSingleton<TelemetryMessageHandler>();
 builder.Services.AddHostedService<TelemetryConsumer>();
 
+// Drains OutboxMessages into Kafka (ADR 0006). It also drains rows written by the
+// HTTP endpoint, since both paths share ColdChainMonitoringService.RecordAsync.
+builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Outbox"));
+if (builder.Configuration.GetValue("Outbox:Enabled", true))
+    builder.Services.AddHostedService<OutboxDispatcher>();
+
 builder.Build().Run();

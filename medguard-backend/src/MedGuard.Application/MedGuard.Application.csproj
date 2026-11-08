@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MedGuard.Domain\MedGuard.Domain.csproj" />
+    <ProjectReference Include="..\MedGuard.Contracts\MedGuard.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

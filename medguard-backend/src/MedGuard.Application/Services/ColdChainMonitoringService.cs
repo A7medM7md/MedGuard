@@ -3,6 +3,8 @@ using MedGuard.Application.Common;
 using MedGuard.Application.DTOs;
 using MedGuard.Application.Exceptions;
 using MedGuard.Application.Interfaces;
+using MedGuard.Contracts.Events;
+using MedGuard.Contracts.Kafka;
 using MedGuard.Domain.Entities;
 using MedGuard.Domain.Interfaces;
 
@@ -11,8 +13,13 @@ namespace MedGuard.Application.Services;
 public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringService
 {
     private readonly IUnitOfWork _uow;
+    private readonly IOutbox _outbox;
 
-    public ColdChainMonitoringService(IUnitOfWork uow) => _uow = uow;
+    public ColdChainMonitoringService(IUnitOfWork uow, IOutbox outbox)
+    {
+        _uow = uow;
+        _outbox = outbox;
+    }
 
     public async Task<Response<SensorReadingDto>> RecordReadingAsync(RecordReadingRequest request, CancellationToken ct = default)
     {
@@ -79,10 +86,29 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
         // and assumes it already exists — tracking it as Modified instead of Added, which
         // then fails as a no-op UPDATE. Adding it explicitly forces the correct Added state.
         if (alert is not null)
+        {
             await _uow.Alerts.AddAsync(alert, ct);
 
-        // One SaveChanges = one transaction: the reading, its alert and the batch's
-        // new status are committed together or not at all.
+            // Outbox (ADR 0006): staged here, written by the SaveChanges below.
+            // Publishing to Kafka directly instead would open two failure windows:
+            //   publish, then crash before commit -> UI shows an alert the DB never stored
+            //   commit, then crash before publish -> alert stored, nobody is ever notified
+            // Keyed by BatchId, like sensor-readings, so one batch's alerts stay in order.
+            _outbox.Enqueue(KafkaTopics.BatchAlerts, batch.Id.ToString(), new BatchAlertRaised(
+                alert.Id,
+                batch.Id,
+                batch.BatchNumber,
+                batch.DrugName,
+                alert.Severity.ToString(),
+                alert.Message,
+                reading.TemperatureC,
+                batch.Status.ToString(),
+                reading.DeviceId,
+                alert.TriggeredAtUtc));
+        }
+
+        // One SaveChanges = one transaction: the reading, its alert, the batch's
+        // new status and the outbox event are committed together or not at all.
         await _uow.SaveChangesAsync(ct);
         return alert;
     }

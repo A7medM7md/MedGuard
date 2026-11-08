@@ -1,4 +1,5 @@
 using MedGuard.Domain.Entities;
+using MedGuard.Infrastructure.Outbox;
 using Microsoft.EntityFrameworkCore;
 
 namespace MedGuard.Infrastructure.Persistence;
@@ -13,6 +14,7 @@ public class MedGuardDbContext : DbContext
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<OrgSettings> OrgSettings => Set<OrgSettings>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

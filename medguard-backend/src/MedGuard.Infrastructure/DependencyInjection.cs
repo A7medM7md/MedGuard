@@ -1,4 +1,6 @@
+using MedGuard.Application.Interfaces;
 using MedGuard.Domain.Interfaces;
+using MedGuard.Infrastructure.Outbox;
 using MedGuard.Infrastructure.Persistence;
 using MedGuard.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +30,8 @@ public static class DependencyInjection
         services.AddScoped<IDeviceRepository, DeviceRepository>();
         services.AddScoped<IOrgSettingsRepository, OrgSettingsRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        // Scoped like the DbContext it writes into: same scope = same transaction.
+        services.AddScoped<IOutbox, EfOutbox>();
 
         return services;
     }
