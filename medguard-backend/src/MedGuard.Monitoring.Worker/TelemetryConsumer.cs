@@ -1,5 +1,6 @@
 using Confluent.Kafka;
 using MedGuard.Contracts.Kafka;
+using MedGuard.ServiceDefaults;
 using Microsoft.Extensions.Options;
 
 namespace MedGuard.Monitoring.Worker;
@@ -19,12 +20,15 @@ public sealed class TelemetryConsumer : BackgroundService
     private readonly MonitoringOptions _options;
     private readonly TelemetryMessageHandler _handler;
     private readonly ILogger<TelemetryConsumer> _log;
+    private readonly WorkerHealth _health;
 
-    public TelemetryConsumer(IOptions<MonitoringOptions> options, TelemetryMessageHandler handler, ILogger<TelemetryConsumer> log)
+    public TelemetryConsumer(IOptions<MonitoringOptions> options, TelemetryMessageHandler handler,
+        ILogger<TelemetryConsumer> log, WorkerHealth health)
     {
         _options = options.Value;
         _handler = handler;
         _log = log;
+        _health = health;
     }
 
     // Consume() is a BLOCKING call. Running it directly in ExecuteAsync would
@@ -66,6 +70,7 @@ public sealed class TelemetryConsumer : BackgroundService
             while (!ct.IsCancellationRequested)
             {
                 CollectBatch(consumer, batch);
+                _health.LoopTick(); // liveness: proves the loop isn't stuck (ADR 0010)
 
                 if (DateTime.UtcNow >= nextReport)
                 {
@@ -81,6 +86,8 @@ public sealed class TelemetryConsumer : BackgroundService
                 // partition matters, but storing each is cheap and in order).
                 for (var i = 0; i < doneCount; i++)
                     consumer.StoreOffset(batch[i]);
+
+                if (doneCount == batch.Count) _health.Progressing(); else _health.Retrying();
 
                 if (doneCount < batch.Count)
                 {
@@ -147,6 +154,7 @@ public sealed class TelemetryConsumer : BackgroundService
                 lag += Math.Max(0, high.Value - position.Value);
         }
 
+        PipelineTelemetry.SetConsumerLag(lag);
         var s = _handler.Stats;
         // Messages FINISHED per second (recorded, duplicate or dead-lettered),
         // i.e. this instance's throughput. Compare it with the offered load.

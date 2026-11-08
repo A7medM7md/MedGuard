@@ -11,7 +11,8 @@ public record IngestReadingCommand(
     decimal? HumidityPercent,
     double? Latitude,
     double? Longitude,
-    DateTime RecordedAtUtc);
+    DateTime RecordedAtUtc,
+    string? TraceParent = null); // W3C trace context from the device (ADR 0011); null = not traced
 
 public enum IngestOutcome
 {

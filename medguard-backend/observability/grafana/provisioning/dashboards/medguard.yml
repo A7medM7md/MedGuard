@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: medguard
+    folder: MedGuard
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

@@ -8,6 +8,7 @@ using MedGuard.Contracts.Devices;
 using MedGuard.Contracts.Kafka;
 using MedGuard.Domain.Enums;
 using MedGuard.Domain.Exceptions;
+using MedGuard.ServiceDefaults;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -68,6 +69,12 @@ public sealed class TelemetryMessageHandler
             return await DeadLetterAsync(message, $"undeserializable: {ex.Message}", ct);
         }
 
+        var traceParent = PipelineTelemetry.TraceParentOf(message.Message.Headers);
+        using var span = PipelineTelemetry.Source.StartActivity("process message", ActivityKind.Consumer,
+            Contracts.Tracing.TraceContext.Parse(traceParent));
+        span?.SetTag("messaging.system", "kafka");
+        span?.SetTag("messaging.destination.partition.id", message.Partition.Value);
+
         try
         {
             // A fresh DI scope per message = a fresh DbContext per message. A
@@ -80,17 +87,21 @@ public sealed class TelemetryMessageHandler
             var started = Stopwatch.GetTimestamp();
             var result = await service.IngestAsync(new IngestReadingCommand(
                 telemetry.MessageId, telemetry.BatchId, telemetry.DeviceCode, telemetry.TemperatureC,
-                telemetry.HumidityPercent, telemetry.Latitude, telemetry.Longitude, telemetry.RecordedAtUtc), ct);
+                telemetry.HumidityPercent, telemetry.Latitude, telemetry.Longitude, telemetry.RecordedAtUtc, traceParent), ct);
             Stats.Db.Add(Stopwatch.GetElapsedTime(started));
+            PipelineTelemetry.DbDuration.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            PipelineTelemetry.BatchSize.Record(1);
 
             switch (result.Outcome)
             {
                 case IngestOutcome.Recorded:
                     Stats.Recorded++;
+                    CountRecorded(telemetry);
                     CountAlert(result, message);
                     break;
                 case IngestOutcome.Duplicate:
                     Stats.Duplicates++;
+                    PipelineTelemetry.ReadingsProcessed.Add(1, new KeyValuePair<string, object?>("outcome", "duplicate"));
                     break;
                 case IngestOutcome.BatchNotFound:
                     return await DeadLetterAsync(message, $"batch {telemetry.BatchId} not found", ct);
@@ -155,6 +166,20 @@ public sealed class TelemetryMessageHandler
             return (disposition == Disposition.Done ? 1 : 0, retryAfter);
         }
 
+        // One span for the batch, LINKED (not parented) to every message's trace:
+        // a span can't have 200 parents. Links are OpenTelemetry's answer for
+        // batch processing. Each reading that raises an alert also gets its own
+        // child span in its device trace (ColdChainMonitoringService).
+        var links = messages
+            .Select(m => Contracts.Tracing.TraceContext.Parse(PipelineTelemetry.TraceParentOf(m.Message.Headers)))
+            .Where(c => c != default)
+            .Select(c => new ActivityLink(c))
+            .ToList();
+        using var batchSpan = PipelineTelemetry.Source.StartActivity("process batch", ActivityKind.Consumer,
+            parentContext: default, links: links);
+        batchSpan?.SetTag("messaging.system", "kafka");
+        batchSpan?.SetTag("messaging.batch.message_count", messages.Count);
+
         // 1. Parse. Bad JSON can't be fixed by retrying; note it, keep going.
         var parsed = new DeviceTelemetry?[messages.Count];
         var commands = new List<IngestReadingCommand>(messages.Count);
@@ -168,7 +193,8 @@ public sealed class TelemetryMessageHandler
 
             commandIndex[i] = commands.Count;
             commands.Add(new IngestReadingCommand(t.MessageId, t.BatchId, t.DeviceCode, t.TemperatureC,
-                t.HumidityPercent, t.Latitude, t.Longitude, t.RecordedAtUtc));
+                t.HumidityPercent, t.Latitude, t.Longitude, t.RecordedAtUtc,
+                PipelineTelemetry.TraceParentOf(messages[i].Message.Headers)));
         }
 
         // 2. One transaction for every parseable message.
@@ -183,6 +209,8 @@ public sealed class TelemetryMessageHandler
                 results = await service.IngestBatchAsync(commands, ct);
                 Stats.Db.Add(Stopwatch.GetElapsedTime(started), commands.Count);
                 Stats.Batches++;
+                PipelineTelemetry.DbDuration.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                PipelineTelemetry.BatchSize.Record(commands.Count);
                 _batchAttempt = 0;
             }
             catch (Exception ex) when (IsTransient(ex) && !IsUniqueViolation(ex) && !ct.IsCancellationRequested)
@@ -229,10 +257,12 @@ public sealed class TelemetryMessageHandler
                 {
                     case IngestOutcome.Recorded:
                         Stats.Recorded++;
+                        CountRecorded(parsed[i]!);
                         CountAlert(result, messages[i]);
                         break;
                     case IngestOutcome.Duplicate:
                         Stats.Duplicates++;
+                        PipelineTelemetry.ReadingsProcessed.Add(1, new KeyValuePair<string, object?>("outcome", "duplicate"));
                         break;
                     case IngestOutcome.BatchNotFound:
                         dlqReason = $"batch {parsed[i]!.BatchId} not found";
@@ -255,6 +285,14 @@ public sealed class TelemetryMessageHandler
     }
 
     private int _batchAttempt;
+
+    private static void CountRecorded(DeviceTelemetry telemetry)
+    {
+        PipelineTelemetry.ReadingsProcessed.Add(1, new KeyValuePair<string, object?>("outcome", "recorded"));
+        // Device sampled it -> committed now. The same number loadtest/report.sql
+        // computes after the fact, but live, as a histogram (p50/p95 in Grafana).
+        PipelineTelemetry.EndToEndLatency.Record((DateTime.UtcNow - telemetry.RecordedAtUtc).TotalMilliseconds);
+    }
 
     private void CountAlert(IngestResult result, ConsumeResult<string, byte[]> message)
     {
@@ -298,6 +336,7 @@ public sealed class TelemetryMessageHandler
 
         Stats.Dlq.Add(Stopwatch.GetElapsedTime(started));
         Stats.DeadLettered++;
+        PipelineTelemetry.ReadingsProcessed.Add(1, new KeyValuePair<string, object?>("outcome", "dlq"));
         _attempts.Remove(message.TopicPartitionOffset);
         _log.LogWarning("DLQ p{Partition}@{Offset}: {Reason}", message.Partition.Value, message.Offset.Value, reason);
         return (Disposition.Done, TimeSpan.Zero);

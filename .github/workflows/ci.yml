@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch cancels the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (build + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: medguard-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore MedGuard.sln
+
+      - name: Build
+        run: dotnet build MedGuard.sln -c Release --no-restore
+
+      # Fast feedback first: pure logic, no Docker, a few seconds.
+      - name: Unit tests
+        run: dotnet test tests/MedGuard.UnitTests -c Release --no-build --logger "trx;LogFileName=unit.trx"
+
+      # Real SQL Server + Kafka via Testcontainers (ADR 0009). GitHub's Ubuntu
+      # runners ship Docker, so nothing else is needed. The SQL image is ~2 GB,
+      # and that pull is most of this step's time.
+      - name: Integration tests
+        run: dotnet test tests/MedGuard.IntegrationTests -c Release --no-build --logger "trx;LogFileName=integration.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: medguard-backend/tests/**/TestResults/*.trx
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: medguard-angular
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: medguard-angular/package-lock.json
+
+      - run: npm ci
+      - run: npx ng build

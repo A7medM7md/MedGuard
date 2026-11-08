@@ -27,7 +27,16 @@ public interface IMonitoringClient
 {
     Task AlertRaised(AlertNotification alert);
     Task ReadingsUpdated(IReadOnlyList<LiveReading> readings);
+
+    /// <summary>
+    /// Every 5s, from INSIDE the consume loop (ADR 0010). "Connected" only proves
+    /// the WebSocket is up; this proves the feed behind it is alive. If heartbeats
+    /// stop, or say Kafka is down, the page falls back to polling.
+    /// </summary>
+    Task FeedHeartbeat(FeedStatus status);
 }
+
+public record FeedStatus(bool KafkaHealthy, int AssignedPartitions, DateTime ServerTimeUtc);
 
 /// <param name="SuppressedCount">How many identical alerts (same batch, severity
 /// and status) were held back by the throttle since the last one sent.</param>
@@ -42,7 +51,8 @@ public record AlertNotification(
     string BatchStatus,
     string DeviceCode,
     DateTime TriggeredAtUtc,
-    int SuppressedCount);
+    int SuppressedCount,
+    string? TraceId = null); // the reading's trace (ADR 0011): paste it into Seq to see the whole journey
 
 /// <summary>A reading as RECEIVED from the device, before the domain has evaluated it (see ADR 0007).</summary>
 public record LiveReading(

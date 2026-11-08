@@ -4,8 +4,11 @@
     "MedGuard.Monitoring.Worker": {
       "commandName": "Project",
       "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:5101",
       "environmentVariables": {
-        "DOTNET_ENVIRONMENT": "Development"
+        "DOTNET_ENVIRONMENT": "Development",
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Observability__Enabled": "true"
       }
     }
   }

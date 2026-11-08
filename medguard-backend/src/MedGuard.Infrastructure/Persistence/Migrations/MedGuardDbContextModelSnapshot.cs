@@ -329,6 +329,11 @@ namespace MedGuard.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(200)

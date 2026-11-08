@@ -1,12 +1,16 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Text;
 using System.Threading.Channels;
 using Confluent.Kafka;
 using MedGuard.Contracts.Devices;
 using MedGuard.Contracts.Kafka;
+using MedGuard.Contracts.Tracing;
+using MedGuard.ServiceDefaults;
 using Microsoft.Extensions.Options;
 using MQTTnet;
 using MQTTnet.Formatter;
+using MQTTnet.Packets;
 using MQTTnet.Protocol;
 
 namespace MedGuard.IngestionBridge;
@@ -35,6 +39,13 @@ public sealed class MqttToKafkaBridge : BackgroundService
     private readonly IProducer<string, byte[]> _producer;
     private readonly BridgeStats _stats = new();
     private ChannelReader<PendingAck>? _currentQueue; // for stats only
+    private IMqttClient? _currentClient;               // for health only
+    private long _lastAckTicks;
+
+    /// <summary>Health signals (ADR 0010), read by BridgeHealthCheck.</summary>
+    public bool IsMqttConnected => _currentClient?.IsConnected == true;
+    public int InFlight => _currentQueue?.Count ?? 0;
+    public DateTime? LastAckUtc => Interlocked.Read(ref _lastAckTicks) is var t and > 0 ? new DateTime(t, DateTimeKind.Utc) : null;
 
     private string SubscriptionFilter => $"$share/{_options.ShareGroup}/{MqttTopics.AllTelemetry}";
 
@@ -96,6 +107,7 @@ public sealed class MqttToKafkaBridge : BackgroundService
     {
         var factory = new MqttClientFactory();
         using var client = factory.CreateMqttClient();
+        _currentClient = client;
         using var connectionLost = new CancellationTokenSource();
 
         // A fresh queue per connection: acks for messages from a DEAD connection
@@ -207,6 +219,7 @@ public sealed class MqttToKafkaBridge : BackgroundService
 
             await item.Mqtt.AcknowledgeAsync(connectionLost);
             Interlocked.Increment(ref _stats.Acked);
+            Interlocked.Exchange(ref _lastAckTicks, DateTime.UtcNow.Ticks);
         }
     }
 
@@ -215,6 +228,14 @@ public sealed class MqttToKafkaBridge : BackgroundService
     {
         var payload = message.Payload.ToArray();
         var (telemetry, error) = TelemetryValidator.Validate(message.Topic, payload);
+
+        // The device put its trace context in an MQTT v5 user property (ADR 0011).
+        // Continue it, then hand it on in a Kafka header: one trace, two protocols.
+        var deviceTrace = message.UserProperties?
+            .FirstOrDefault(p => p.Name == TraceContext.TraceParent)?.ReadValueAsString();
+        var span = PipelineTelemetry.StartDetached("telemetry forward", ActivityKind.Consumer, TraceContext.Parse(deviceTrace));
+        span?.SetTag("messaging.system", "mqtt");
+        span?.SetTag("messaging.destination.name", message.Topic);
 
         var headers = new Headers
         {
@@ -228,28 +249,33 @@ public sealed class MqttToKafkaBridge : BackgroundService
             // Poison message: park it in the DLQ and ack it. Leaving it unacked
             // would mean the broker redelivers it forever and it never succeeds.
             Interlocked.Increment(ref _stats.DeadLettered);
+            PipelineTelemetry.BridgeMessages.Add(1, new KeyValuePair<string, object?>("outcome", "dlq"));
             _log.LogWarning("DLQ: {Topic}: {Error}", message.Topic, error);
             headers.Add(KafkaHeaders.DlqReason, Encoding.UTF8.GetBytes(error!));
-            return _producer.ProduceAsync(KafkaTopics.SensorReadingsDlq, new Message<string, byte[]>
+            PipelineTelemetry.Inject(headers, span);
+            span?.SetStatus(ActivityStatusCode.Error, error);
+            return PipelineTelemetry.EndWhenDone(_producer.ProduceAsync(KafkaTopics.SensorReadingsDlq, new Message<string, byte[]>
             {
                 Key = MqttTopics.DeviceCodeFrom(message.Topic) ?? "unknown",
                 Value = payload,
                 Headers = headers,
-            });
+            }), span);
         }
 
         headers.Add(KafkaHeaders.MessageId, Encoding.UTF8.GetBytes(telemetry.MessageId.ToString()));
         headers.Add(KafkaHeaders.DeviceCode, Encoding.UTF8.GetBytes(telemetry.DeviceCode));
+        PipelineTelemetry.Inject(headers, span);
+        PipelineTelemetry.BridgeMessages.Add(1, new KeyValuePair<string, object?>("outcome", "forwarded"));
 
         // Forward the device's original bytes, not a re-serialized copy. A newer
         // firmware may send fields this bridge doesn't know yet, and consumers
         // that do know them must still receive them.
-        return _producer.ProduceAsync(KafkaTopics.SensorReadings, new Message<string, byte[]>
+        return PipelineTelemetry.EndWhenDone(_producer.ProduceAsync(KafkaTopics.SensorReadings, new Message<string, byte[]>
         {
             Key = telemetry.BatchId.ToString(),
             Value = payload,
             Headers = headers,
-        });
+        }), span);
     }
 
     private async Task ReportStatsAsync(CancellationToken ct)

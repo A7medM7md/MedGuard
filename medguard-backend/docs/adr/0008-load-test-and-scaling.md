@@ -1,6 +1,6 @@
 # ADR 0008: Load test, scaling, and batch consumption
 
-- **Status:** Accepted (open items at the end)
+- **Status:** Accepted (open items closed 2026-11-08, see "Follow-up runs")
 - **Date:** 2026-11-08
 
 ## Context
@@ -131,14 +131,46 @@ gets one copy instead of two (20 rejected + 5 unknown = 25). If the copies land
 in different consumer batches, both are dead-lettered, which is what the single
 path does too.
 
+## Follow-up runs (closing the open items)
+
+### Is the bridge the ~465/s limit? No: it's upstream of it
+
+1000 devices × 1/s, no workers needed (bridge only forwards to Kafka):
+
+| Bridges on `$share/ingestion-bridge` | Devices published | Bridge 1 | Bridge 2 | **Total** |
+|---|---|---|---|---|
+| 1 | ~1000/s (PUBACK ~44 ms) | 370–450/s | — | **~410/s** |
+| 2 | ~1000/s (PUBACK ~38 ms) | 400 messages, then **0/s** | 435–450/s | **~445/s** |
+
+Doubling the bridges didn't raise the total. HiveMQ also sent almost everything
+to **one** of the two shared subscribers, while the other sat idle with an empty
+in-flight window. The cap lives in **HiveMQ CE or Docker Desktop's port relay**,
+not in our bridge code. HiveMQ was again at its 512 MiB limit at the end, holding
+the unread backlog. More bridges won't help. Next steps, if 1000/s end to end
+matters: give HiveMQ more memory or try another broker (EMQX, Mosquitto), and
+run the bridge inside the Docker network to take the port relay out of the path.
+
+### Batched scaling (drain test, 40k readings)
+
+| Workers | `MaxBatchSize` | Throughput |
+|---|---|---|
+| 1 | 200 | 3578/s |
+| 2 | 200 | 5686/s (1.6×) |
+| 3 | 200 | 6275/s (1.75×; +10% over 2) |
+
+As predicted, SQL Server becomes the limit: the 3rd worker adds 10%.
+The 1-worker figure is **3578/s here vs 1622/s in the first run**: same code path,
+different conditions (40k instead of 20k messages, so warm-up weighs less;
+~1.3 GB of RAM free instead of ~0.7 GB). Treat absolute numbers on this laptop as
+±2×. The *ratios* (batching ≫ sequential; sub-linear scaling) held in every run.
+
+**End to end, the pipeline is capped at the broker (~450/s)**, far below what
+the workers can absorb. The bottleneck moved from the consumer (phase 6) to the edge.
+
 ## Consequences / open items
 
-- **Bridge cap (finding 4):** run 2 bridge instances on the `$share` group. If the
-  total doubles, the bridge is the limit; if it stays at ~465/s, the broker or the
-  Docker network is. If it's the bridge, MQTTnet's sequential handler is the
-  first suspect.
-- **Batched scaling:** 2, 3 and 6 batched workers weren't measured (RAM). Expect
-  SQL Server, not the workers, to become the limit.
+- ~~Bridge cap~~: measured above. It's the broker/Docker path, not the bridge.
+- ~~Batched scaling~~: measured above. SQL Server is the limit from about 2–3 workers.
 - **Hot batches:** if one batch can ever carry a large share of devices, consider
   keying by `batchId` + device shard and reordering per batch downstream. Not
   needed for today's data.

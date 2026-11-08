@@ -2,6 +2,10 @@
 #
 #   docker compose up -d                    -> HiveMQ + Kafka (+ topic creation)
 #   docker compose --profile tools up -d    -> also Kafka UI on http://localhost:8085
+#   docker compose --profile observability up -d
+#                                           -> Seq (logs+traces) http://localhost:5341,
+#                                              Prometheus http://localhost:9090,
+#                                              Grafana http://localhost:3000 (ADR 0011)
 #
 # Memory is capped on every container — this is meant to run on an 8GB dev
 # machine alongside Visual Studio, SQL Server and the Angular dev server.
@@ -110,3 +114,62 @@ services:
       JAVA_OPTS: "-Xms128m -Xmx256m"
     mem_limit: 400m
     restart: unless-stopped
+
+  # --- Observability (ADR 0011). Behind a profile: ~1 GB together. -------------
+
+  # Logs (Serilog sink) AND traces (OTLP/HTTP at /ingest/otlp/v1/traces) in one
+  # place, so a log line links to its trace and back.
+  seq:
+    image: datalust/seq:2025.1
+    container_name: medguard-seq
+    profiles: ["observability"]
+    ports:
+      - "5341:80"
+    environment:
+      ACCEPT_EULA: "Y"
+      # Local dev only: no login. Never expose this container.
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
+    volumes:
+      - seq-data:/data
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Metrics, PUSHED by the services over OTLP (no scrape targets to maintain).
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    container_name: medguard-prometheus
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+      - --storage.tsdb.retention.time=2d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 300m
+    restart: unless-stopped
+
+  # The pipeline dashboard is provisioned from ./observability/grafana.
+  grafana:
+    image: grafana/grafana:12.0.2
+    container_name: medguard-grafana
+    profiles: ["observability"]
+    depends_on: [prometheus]
+    ports:
+      - "3000:3000"
+    environment:
+      # Local dev only: anonymous admin, no login screen.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    mem_limit: 256m
+    restart: unless-stopped
+
+volumes:
+  seq-data:
+  prometheus-data:

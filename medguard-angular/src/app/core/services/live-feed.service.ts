@@ -6,11 +6,22 @@ import { BatchStatus, Reading } from '../models';
 import { AuthService } from './auth.service';
 
 /**
- * 'live'        pushes are flowing, so no polling is needed
+ * 'live'        connected AND heartbeats say the feed behind it is alive: no polling needed
+ * 'stale'       connected, but heartbeats stopped or report Kafka down: poll (ADR 0010)
  * 'connecting'  first connect, or auto-reconnecting after a drop
- * 'offline'     no hub (production, Kafka down, notifier disabled), so the caller polls
+ * 'offline'     no hub (production, notifier disabled), so the caller polls
  */
-export type LiveFeedState = 'live' | 'connecting' | 'offline';
+export type LiveFeedState = 'live' | 'stale' | 'connecting' | 'offline';
+
+/** Mirrors FeedStatus in MedGuard.API/Realtime/MonitoringHub.cs. Sent every 5s. */
+interface FeedStatus {
+  kafkaHealthy: boolean;
+  assignedPartitions: number;
+  serverTimeUtc: string;
+}
+
+/** Three missed heartbeats (sent every 5s) and the feed counts as stale. */
+const HEARTBEAT_TIMEOUT_MS = 15_000;
 
 /** Mirrors AlertNotification in MedGuard.API/Realtime/MonitoringHub.cs. */
 export interface LiveAlert {
@@ -25,6 +36,8 @@ export interface LiveAlert {
   deviceCode: string;
   triggeredAtUtc: string;
   suppressedCount: number;
+  /** The reading's trace id (ADR 0011): search it in Seq to see device -> browser. */
+  traceId: string | null;
 }
 
 /** Mirrors LiveReading in MedGuard.API/Realtime/MonitoringHub.cs. */
@@ -68,6 +81,9 @@ export class LiveFeedService {
 
   private connection?: HubConnection;
   private users = 0;
+  private lastHeartbeat = 0;
+  private feedHealthy = false;
+  private watchdog?: ReturnType<typeof setInterval>;
 
   constructor(private auth: AuthService) {}
 
@@ -94,16 +110,26 @@ export class LiveFeedService {
 
     connection.on('AlertRaised', (alert: LiveAlert) => this.alerts$.next(alert));
     connection.on('ReadingsUpdated', (readings: LiveReadingDto[]) => this.readings$.next(readings.map(toReading)));
+    connection.on('FeedHeartbeat', (status: FeedStatus) => {
+      this.lastHeartbeat = Date.now();
+      const wasLive = this.state() === 'live';
+      this.feedHealthy = status.kafkaHealthy;
+      this.refreshState();
+      // Coming back from 'stale': pushes were missed meanwhile, so resync like after a reconnect.
+      if (!wasLive && this.state() === 'live') this.reconnected$.next();
+    });
 
     connection.onreconnecting(() => this.state.set('connecting'));
     connection.onreconnected(() => {
-      this.state.set('live');
+      // Wait for the next heartbeat before calling it 'live' again.
+      this.state.set('stale');
       this.reconnected$.next();
     });
     connection.onclose(() => {
       // Reconnect gave up (or we stopped). Forget this connection so the next
       // connect() builds a fresh one instead of returning early on a dead one.
       if (this.connection === connection) this.connection = undefined;
+      this.stopWatchdog();
       this.state.set('offline');
     });
 
@@ -111,7 +137,9 @@ export class LiveFeedService {
     this.state.set('connecting');
     try {
       await connection.start();
-      this.state.set('live');
+      // Connected isn't the same as fed: 'stale' until the first heartbeat arrives.
+      this.state.set('stale');
+      this.startWatchdog();
     } catch {
       // Hub not there (production, notifier disabled, API down). Not an error
       // for the user: the page simply keeps polling.
@@ -126,8 +154,27 @@ export class LiveFeedService {
 
     const connection = this.connection;
     this.connection = undefined;
+    this.stopWatchdog();
     if (connection.state !== HubConnectionState.Disconnected) await connection.stop();
     this.state.set('offline');
+  }
+
+  /** Recomputes live vs stale from the last heartbeat. Only while connected. */
+  private refreshState(): void {
+    if (this.connection?.state !== HubConnectionState.Connected) return;
+    const fresh = Date.now() - this.lastHeartbeat < HEARTBEAT_TIMEOUT_MS;
+    this.state.set(fresh && this.feedHealthy ? 'live' : 'stale');
+  }
+
+  /** Heartbeats can stop without any event (notifier loop stuck): check on a timer. */
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.watchdog = setInterval(() => this.refreshState(), 5_000);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.watchdog = undefined;
   }
 }
 

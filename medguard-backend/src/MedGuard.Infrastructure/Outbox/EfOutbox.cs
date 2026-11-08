@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MedGuard.Application.Interfaces;
 using MedGuard.Contracts.Devices;
+using MedGuard.Contracts.Tracing;
 using MedGuard.Infrastructure.Persistence;
 
 namespace MedGuard.Infrastructure.Outbox;
@@ -23,5 +24,6 @@ public sealed class EfOutbox : IOutbox
             MessageKey = key,
             Type = typeof(T).Name,
             Payload = JsonSerializer.Serialize(payload, ContractJson.Options),
+            TraceParent = TraceContext.Current(),
         });
 }

@@ -1,9 +1,12 @@
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics;
 using Confluent.Kafka;
 using MedGuard.Contracts.Devices;
 using MedGuard.Contracts.Events;
 using MedGuard.Contracts.Kafka;
+using MedGuard.Contracts.Tracing;
+using MedGuard.ServiceDefaults;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 
@@ -31,6 +34,7 @@ public sealed class KafkaNotifier : BackgroundService
     private readonly IHubContext<MonitoringHub, IMonitoringClient> _hub;
     private readonly ILogger<KafkaNotifier> _log;
     private readonly AlertGate _alerts;
+    private readonly NotifierHealth _health;
 
     // Conflation: only the newest reading per batch survives until the next flush.
     // 1000 devices x 1 reading/s becomes at most one update per batch per second,
@@ -38,12 +42,13 @@ public sealed class KafkaNotifier : BackgroundService
     private readonly Dictionary<Guid, LiveReading> _pendingReadings = new();
     private long _alertsPushed, _readingsReceived, _readingFlushes, _badMessages;
 
-    public KafkaNotifier(IOptions<NotifierOptions> options, IHubContext<MonitoringHub, IMonitoringClient> hub,
+    public KafkaNotifier(IOptions<NotifierOptions> options, IHubContext<MonitoringHub, IMonitoringClient> hub, NotifierHealth health,
         ILogger<KafkaNotifier> log)
     {
         _options = options.Value;
         _hub = hub;
         _log = log;
+        _health = health;
         _alerts = new AlertGate(
             TimeSpan.FromMinutes(_options.DedupeWindowMinutes),
             TimeSpan.FromSeconds(_options.AlertThrottleSeconds));
@@ -65,7 +70,12 @@ public sealed class KafkaNotifier : BackgroundService
             // want "from now". Committing would only leave clutter behind.
             EnableAutoCommit = false,
         })
-        .SetErrorHandler((_, e) => _log.LogWarning("Kafka: {Reason}", e.Reason))
+        .SetErrorHandler((_, e) =>
+        {
+            _log.LogWarning("Kafka: {Reason}", e.Reason);
+            if (e.Code == ErrorCode.Local_AllBrokersDown || e.IsFatal)
+                _health.BrokerDown();
+        })
         .Build();
 
         consumer.Subscribe([KafkaTopics.BatchAlerts, KafkaTopics.SensorReadings]);
@@ -73,6 +83,7 @@ public sealed class KafkaNotifier : BackgroundService
             KafkaTopics.BatchAlerts, KafkaTopics.SensorReadings, groupId);
 
         var nextFlush = DateTime.UtcNow.AddMilliseconds(_options.ReadingFlushIntervalMs);
+        var nextHeartbeat = DateTime.UtcNow;
         var nextReport = DateTime.UtcNow.AddSeconds(30);
         try
         {
@@ -80,6 +91,13 @@ public sealed class KafkaNotifier : BackgroundService
             {
                 // A short timeout so the flush below still runs when traffic stops.
                 var result = consumer.Consume(TimeSpan.FromMilliseconds(100));
+                _health.LoopTick(consumer.Assignment.Count);
+
+                if (DateTime.UtcNow >= nextHeartbeat)
+                {
+                    await _hub.Clients.All.FeedHeartbeat(new FeedStatus(_health.KafkaHealthy, consumer.Assignment.Count, DateTime.UtcNow));
+                    nextHeartbeat = DateTime.UtcNow.AddSeconds(5);
+                }
                 if (result is not null)
                     await HandleAsync(result, ct);
 
@@ -120,10 +138,24 @@ public sealed class KafkaNotifier : BackgroundService
                     var messageId = Header(result, KafkaHeaders.MessageId) is { } h && Guid.TryParse(h, out var id)
                         ? id : alert.AlertId;
 
-                    if (_alerts.Admit(messageId, alert) is { } notification)
+                    // Last hop of the reading's trace: device -> bridge -> worker ->
+                    // outbox -> here -> browser (ADR 0011).
+                    using (var span = PipelineTelemetry.Source.StartActivity("push alert", ActivityKind.Consumer,
+                               TraceContext.Parse(PipelineTelemetry.TraceParentOf(result.Message.Headers))))
                     {
-                        await _hub.Clients.All.AlertRaised(notification);
-                        _alertsPushed++;
+                        var duplicatesBefore = _alerts.Duplicates;
+                        if (_alerts.Admit(messageId, alert) is { } notification)
+                        {
+                            await _hub.Clients.All.AlertRaised(notification with { TraceId = span?.TraceId.ToString() });
+                            _alertsPushed++;
+                            PipelineTelemetry.NotifierAlerts.Add(1, new KeyValuePair<string, object?>("result", "pushed"));
+                        }
+                        else
+                        {
+                            var outcome = _alerts.Duplicates > duplicatesBefore ? "duplicate" : "throttled";
+                            span?.SetTag("medguard.notifier_result", outcome);
+                            PipelineTelemetry.NotifierAlerts.Add(1, new KeyValuePair<string, object?>("result", outcome));
+                        }
                     }
                     break;
 
@@ -155,6 +187,7 @@ public sealed class KafkaNotifier : BackgroundService
         _pendingReadings.Clear();
         await _hub.Clients.All.ReadingsUpdated(batch);
         _readingFlushes++;
+        PipelineTelemetry.NotifierReadingPushes.Add(1);
     }
 
     private static string? Header(ConsumeResult<string, byte[]> r, string key) =>

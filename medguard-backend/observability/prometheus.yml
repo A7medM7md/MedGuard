@@ -1,0 +1,16 @@
+# Metrics arrive by OTLP push (--web.enable-otlp-receiver), so there is nothing
+# to scrape. Prometheus maps the OTel resource service.name -> job and
+# service.instance.id -> instance, so every worker instance is its own series.
+global:
+  evaluation_interval: 15s
+
+otlp:
+  # Copy these resource attributes onto every series as labels.
+  promote_resource_attributes:
+    - service.name
+    - service.instance.id
+
+storage:
+  tsdb:
+    # Pushed samples can arrive slightly out of order (5s export batches).
+    out_of_order_time_window: 30m

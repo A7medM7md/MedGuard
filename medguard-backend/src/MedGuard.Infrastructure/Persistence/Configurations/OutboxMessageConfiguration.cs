@@ -15,6 +15,7 @@ public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage
         builder.Property(m => m.Type).HasMaxLength(200).IsRequired();
         builder.Property(m => m.Payload).IsRequired();
         builder.Property(m => m.LastError).HasMaxLength(1000);
+        builder.Property(m => m.TraceParent).HasMaxLength(64).IsUnicode(false); // "00-<32 hex>-<16 hex>-<2 hex>" = 55 chars
 
         // The dispatcher's only query is "oldest unpublished first". Filtering the
         // index to pending rows keeps it tiny however many published rows pile up.

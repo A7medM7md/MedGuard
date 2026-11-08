@@ -25,6 +25,11 @@ public class OutboxMessage
     /// <summary>Null = still to be published. Set once Kafka acks the message.</summary>
     public DateTime? ProcessedAtUtc { get; set; }
 
+    /// <summary>The span that raised the event, as a W3C traceparent (ADR 0011). The
+    /// dispatcher publishes it as a child of this, so the trace continues across
+    /// the "written to SQL now, published later" gap.</summary>
+    public string? TraceParent { get; set; }
+
     public int Attempts { get; set; }
     public string? LastError { get; set; }
 }

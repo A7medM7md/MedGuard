@@ -1,10 +1,16 @@
 using System.Text;
 using Confluent.Kafka;
+using System.Diagnostics;
 using MedGuard.Contracts.Kafka;
+using MedGuard.Contracts.Tracing;
+using MedGuard.ServiceDefaults;
 using MedGuard.Infrastructure.Outbox;
 using MedGuard.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Retry;
 
 namespace MedGuard.Monitoring.Worker;
 
@@ -26,7 +32,11 @@ public sealed class OutboxDispatcher : BackgroundService
     private readonly ILogger<OutboxDispatcher> _log;
     private readonly IProducer<string, byte[]> _producer;
 
+    private readonly ResiliencePipeline<int> _pipeline;
     private long _published, _failed;
+
+    /// <summary>Read by OutboxHealthCheck: an open circuit means alerts aren't reaching Kafka.</summary>
+    public CircuitBreakerStateProvider Circuit { get; } = new();
 
     public OutboxDispatcher(IServiceScopeFactory scopes, IOptions<OutboxOptions> options,
         IOptions<MonitoringOptions> monitoring, ILogger<OutboxDispatcher> log)
@@ -47,6 +57,7 @@ public sealed class OutboxDispatcher : BackgroundService
         })
         .SetErrorHandler((_, e) => _log.LogWarning("Kafka: {Reason}", e.Reason))
         .Build();
+        _pipeline = BuildPipeline();
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -56,24 +67,15 @@ public sealed class OutboxDispatcher : BackgroundService
 
         var nextCleanup = DateTime.UtcNow;
         var nextReport = DateTime.UtcNow.AddSeconds(10);
-        var failureDelay = TimeSpan.Zero;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                var (claimed, failed) = await DispatchBatchAsync(ct);
-
-                if (failed > 0)
-                {
-                    // Broker trouble: back off 1s, 2s, 4s ... 30s instead of hammering it.
-                    failureDelay = TimeSpan.FromMilliseconds(Math.Min(
-                        30_000, Math.Max(1_000, failureDelay.TotalMilliseconds * 2)));
-                    await Task.Delay(failureDelay, ct);
-                    continue;
-                }
-
-                failureDelay = TimeSpan.Zero;
+                // Polly owns the failure path (ADR 0010): backoff with jitter, and
+                // a circuit that stops claiming rows while Kafka is down. This call
+                // only returns once a poll succeeds.
+                var claimed = await _pipeline.ExecuteAsync(async token => await DispatchBatchAsync(token), ct);
 
                 if (DateTime.UtcNow >= nextCleanup)
                 {
@@ -98,15 +100,58 @@ public sealed class OutboxDispatcher : BackgroundService
             }
             catch (Exception ex)
             {
-                // Typically the database is down. Nothing is lost: the rows stay
-                // pending and the next poll picks them up.
-                _log.LogWarning(ex, "Outbox poll failed; retrying in 5s");
+                // Cleanup/report failures only: dispatch failures are retried inside the pipeline.
+                _log.LogWarning(ex, "Outbox housekeeping failed");
                 await Task.Delay(TimeSpan.FromSeconds(5), ct);
             }
         }
     }
 
-    private async Task<(int Claimed, int Failed)> DispatchBatchAsync(CancellationToken ct)
+    /// <summary>
+    /// Retry (outer) wraps a circuit breaker (inner):
+    ///
+    ///   circuit breaker  3 failed publishes in 30s -> OPEN for 15s. While open,
+    ///                    calls fail instantly: no rows claimed (no SQL locks held),
+    ///                    no produce attempts against a broker that's down.
+    ///                    Then HALF-OPEN: one trial call decides whether to close.
+    ///   retry            any failure (incl. "circuit open", DB down) -> wait
+    ///                    1s, 2s, 4s ... max 30s, with JITTER, and try again, forever.
+    ///                    Jitter matters with several workers: without it they all
+    ///                    retry in lockstep and hit the broker at the same instant.
+    ///
+    /// Nothing is lost while we wait: unpublished rows simply stay pending.
+    /// </summary>
+    private ResiliencePipeline<int> BuildPipeline() => new ResiliencePipelineBuilder<int>()
+        .AddRetry(new RetryStrategyOptions<int>
+        {
+            ShouldHandle = new PredicateBuilder<int>().Handle<Exception>(ex => ex is not OperationCanceledException),
+            MaxRetryAttempts = int.MaxValue,
+            BackoffType = DelayBackoffType.Exponential,
+            UseJitter = true,
+            Delay = TimeSpan.FromSeconds(1),
+            MaxDelay = TimeSpan.FromSeconds(30),
+            OnRetry = args =>
+            {
+                _log.LogWarning("Outbox: {Error}; retry #{Attempt} in {Delay:0.0}s",
+                    args.Outcome.Exception?.Message, args.AttemptNumber + 1, args.RetryDelay.TotalSeconds);
+                return default;
+            },
+        })
+        .AddCircuitBreaker(new CircuitBreakerStrategyOptions<int>
+        {
+            // Only broker failures trip it; a DB outage is the retry's business.
+            ShouldHandle = new PredicateBuilder<int>().Handle<OutboxPublishException>(),
+            FailureRatio = 1.0,
+            MinimumThroughput = 3,
+            SamplingDuration = TimeSpan.FromSeconds(30),
+            BreakDuration = TimeSpan.FromSeconds(15),
+            StateProvider = Circuit,
+            OnOpened = _ => { _log.LogWarning("Outbox circuit OPEN: pausing publishes for 15s"); return default; },
+            OnClosed = _ => { _log.LogInformation("Outbox circuit closed: publishing again"); return default; },
+        })
+        .Build();
+
+    private async Task<int> DispatchBatchAsync(CancellationToken ct)
     {
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<MedGuardDbContext>();
@@ -129,12 +174,12 @@ public sealed class OutboxDispatcher : BackgroundService
             .ToListAsync(ct);
 
         if (batch.Count == 0)
-            return (0, 0);
+            return 0;
 
         // Send the whole batch, THEN wait. Awaiting each one in turn would cost a
         // full broker round trip per message. The idempotent producer keeps
         // per-partition order even with several requests in flight.
-        var sends = batch.Select(m => (Message: m, Delivery: _producer.ProduceAsync(m.Topic, ToKafka(m)))).ToList();
+        var sends = batch.Select(m => (Message: m, Delivery: PublishAsync(m))).ToList();
 
         var failed = 0;
         foreach (var (message, delivery) in sends)
@@ -143,9 +188,11 @@ public sealed class OutboxDispatcher : BackgroundService
             {
                 await delivery;
                 message.ProcessedAtUtc = DateTime.UtcNow;
+                PipelineTelemetry.OutboxPublished.Add(1, new KeyValuePair<string, object?>("result", "ok"));
             }
             catch (ProduceException<string, byte[]> ex)
             {
+                PipelineTelemetry.OutboxPublished.Add(1, new KeyValuePair<string, object?>("result", "failed"));
                 failed++;
                 message.Attempts++;
                 message.LastError = Truncate(ex.Error.Reason, 1000);
@@ -159,11 +206,46 @@ public sealed class OutboxDispatcher : BackgroundService
 
         Interlocked.Add(ref _published, batch.Count - failed);
         Interlocked.Add(ref _failed, failed);
+        // Attempts/LastError are committed above; now tell Polly it failed, so
+        // the retry backs off and the circuit breaker counts it.
         if (failed > 0)
-            _log.LogWarning("Outbox: {Failed}/{Total} messages failed to publish: {Reason}",
-                failed, batch.Count, batch.First(m => m.ProcessedAtUtc is null).LastError);
+            throw new OutboxPublishException(failed, batch.Count, batch.First(m => m.ProcessedAtUtc is null).LastError);
 
-        return (batch.Count, failed);
+        return batch.Count;
+    }
+
+    /// <summary>
+    /// A producer span that's a CHILD of the span that wrote the row (stored as
+    /// TraceParent), possibly minutes ago in another process. The traceparent
+    /// header then carries the trace on to the notifier (ADR 0011).
+    /// </summary>
+    private Task<DeliveryResult<string, byte[]>> PublishAsync(OutboxMessage m)
+    {
+        // StartActivity makes the span Activity.Current, and since this method
+        // isn't async, that would leak into the caller: the next row's span
+        // would become a child of this one. Restore it right away.
+        var previous = Activity.Current;
+        var span = PipelineTelemetry.Source.StartActivity($"{m.Topic} publish", ActivityKind.Producer,
+            TraceContext.Parse(m.TraceParent));
+        Activity.Current = previous;
+
+        span?.SetTag("messaging.system", "kafka");
+        span?.SetTag("messaging.destination.name", m.Topic);
+        span?.SetTag("messaging.message.id", m.Id);
+        span?.SetTag("medguard.outbox_wait_ms", (int)(DateTime.UtcNow - m.OccurredAtUtc).TotalMilliseconds);
+
+        var message = ToKafka(m);
+        PipelineTelemetry.Inject(message.Headers, span);
+        var delivery = _producer.ProduceAsync(m.Topic, message);
+        return span is null ? delivery : EndWhenAcked(delivery, span);
+
+        // The span covers produce -> broker ack, not just handing the message to librdkafka.
+        static async Task<DeliveryResult<string, byte[]>> EndWhenAcked(Task<DeliveryResult<string, byte[]>> delivery, Activity span)
+        {
+            try { return await delivery; }
+            catch (Exception ex) { span.SetStatus(ActivityStatusCode.Error, ex.Message); throw; }
+            finally { span.Dispose(); }
+        }
     }
 
     private static Message<string, byte[]> ToKafka(OutboxMessage m) => new()
@@ -204,3 +286,7 @@ public sealed class OutboxDispatcher : BackgroundService
         base.Dispose();
     }
 }
+
+/// <summary>Some rows of a batch couldn't be published (broker down, timeout). They stay pending.</summary>
+public sealed class OutboxPublishException(int failed, int total, string? reason)
+    : Exception($"{failed}/{total} outbox messages failed to publish: {reason}");

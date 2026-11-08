@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MedGuard.Application.Bases;
 using MedGuard.Application.Common;
 using MedGuard.Application.DTOs;
@@ -5,6 +6,7 @@ using MedGuard.Application.Exceptions;
 using MedGuard.Application.Interfaces;
 using MedGuard.Contracts.Events;
 using MedGuard.Contracts.Kafka;
+using MedGuard.Contracts.Tracing;
 using MedGuard.Domain.Entities;
 using MedGuard.Domain.Exceptions;
 using MedGuard.Domain.Interfaces;
@@ -15,6 +17,9 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
 {
     private readonly IUnitOfWork _uow;
     private readonly IOutbox _outbox;
+
+    /// <summary>BCL ActivitySource: this layer emits spans without depending on OpenTelemetry (ADR 0011).</summary>
+    private static readonly ActivitySource Tracing = new("MedGuard.Application");
 
     public ColdChainMonitoringService(IUnitOfWork uow, IOutbox outbox)
     {
@@ -54,7 +59,9 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
         if (batch is null)
             return IngestResult.BatchNotFound;
 
+        using var span = StartReadingSpan(command);
         var alert = await RecordAsync(batch, ToReading(command), ct);
+        KeepSpanOnlyIfAlert(span, alert);
         return new IngestResult(IngestOutcome.Recorded, alert?.Severity, alert?.Message);
     }
 
@@ -87,12 +94,14 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
                 continue;
             }
 
+            using var span = StartReadingSpan(command);
             try
             {
                 // In order, against the SAME tracked Batch: reading 7 sees the
                 // quarantine that reading 3 caused, exactly as it would have
                 // one at a time. Same partition = same batch = same order (ADR 0001).
                 var alert = await ApplyAsync(batch, ToReading(command), warningMarginPercent, autoQuarantineOnBreach, ct);
+                KeepSpanOnlyIfAlert(span, alert);
                 results[i] = new IngestResult(IngestOutcome.Recorded, alert?.Severity, alert?.Message);
             }
             catch (DomainException ex)
@@ -105,6 +114,38 @@ public class ColdChainMonitoringService : ResponseHandler, IColdChainMonitoringS
 
         await _uow.SaveChangesAsync(ct);
         return results;
+    }
+
+    /// <summary>
+    /// A span per reading, parented to the DEVICE's trace (the traceparent that
+    /// rode along through MQTT and Kafka) and linked to the current batch span.
+    /// While it's Activity.Current, the outbox captures it, so an alert's journey
+    /// to the browser continues the same trace.
+    /// </summary>
+    private static Activity? StartReadingSpan(IngestReadingCommand command)
+    {
+        var parent = TraceContext.Parse(command.TraceParent);
+        if (parent == default) return null; // untraced reading: nothing to continue
+
+        ActivityLink[]? links = Activity.Current is { } batchSpan ? [new ActivityLink(batchSpan.Context)] : null;
+        var span = Tracing.StartActivity("record reading", ActivityKind.Internal, parent, links: links);
+        span?.SetTag("medguard.batch_id", command.BatchId);
+        span?.SetTag("medguard.message_id", command.MessageId);
+        return span;
+    }
+
+    /// <summary>
+    /// At 1000+ readings/s, a span for every safe reading would drown the trace
+    /// store in noise. Clearing the Recorded flag before the span ends means the
+    /// exporter drops it; only readings that raised an alert stay visible.
+    /// </summary>
+    private static void KeepSpanOnlyIfAlert(Activity? span, Alert? alert)
+    {
+        if (span is null) return;
+        if (alert is null)
+            span.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
+        else
+            span.SetTag("medguard.alert_severity", alert.Severity.ToString());
     }
 
     private static SensorReading ToReading(IngestReadingCommand command) => new(command.BatchId,

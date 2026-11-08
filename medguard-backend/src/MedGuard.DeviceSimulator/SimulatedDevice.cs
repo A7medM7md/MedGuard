@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using MedGuard.Contracts.Devices;
+using MedGuard.Contracts.Tracing;
 using MQTTnet;
 using MQTTnet.Formatter;
 using MQTTnet.Protocol;
@@ -14,6 +16,9 @@ namespace MedGuard.DeviceSimulator;
 public sealed class SimulatedDevice
 {
     private const double SafeCenterC = 5.0; // typical vaccine range is 2-8 °C
+
+    /// <summary>Where every pipeline trace starts (ADR 0011): one root span per reading.</summary>
+    public static readonly ActivitySource Tracing = new("MedGuard.Simulator");
 
     private readonly DeviceBinding _binding;
     private readonly MqttOptions _mqtt;
@@ -156,9 +161,17 @@ public sealed class SimulatedDevice
         // QoS 1 (at least once): the broker must PUBACK, or the client resends.
         // A reading must never be silently lost, and a rare duplicate is fine
         // because it's deduplicated by MessageId later.
+        // Root of the reading's trace. Its traceparent rides in an MQTT v5 USER
+        // PROPERTY: metadata next to the payload, like an HTTP header, so the
+        // payload contract stays untouched. Null when not sampled or not tracing.
+        using var span = Tracing.StartActivity("telemetry publish", ActivityKind.Producer);
+        span?.SetTag("medguard.device_code", Code);
+        span?.SetTag("medguard.batch_id", _binding.BatchId);
+        span?.SetTag("medguard.temperature_c", reading.TemperatureC);
+
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         await PublishAsync(MqttTopics.Telemetry(Code), JsonSerializer.Serialize(reading, ContractJson.Options),
-            MqttQualityOfServiceLevel.AtLeastOnce, retain: false, ct);
+            MqttQualityOfServiceLevel.AtLeastOnce, retain: false, ct, traceParent: span?.Id);
         FleetStats.AddPublish(System.Diagnostics.Stopwatch.GetElapsedTime(started));
 
         var marker = _excursionTicksLeft > 0 ? "  <- EXCURSION" : "";
@@ -194,15 +207,18 @@ public sealed class SimulatedDevice
         }
     }
 
-    private Task PublishAsync(string topic, string payload, MqttQualityOfServiceLevel qos, bool retain, CancellationToken ct)
+    private Task PublishAsync(string topic, string payload, MqttQualityOfServiceLevel qos, bool retain, CancellationToken ct,
+        string? traceParent = null)
     {
-        var message = new MqttApplicationMessageBuilder()
+        var builder = new MqttApplicationMessageBuilder()
             .WithTopic(topic)
             .WithPayload(payload)
             .WithContentType("application/json")
             .WithQualityOfServiceLevel(qos)
-            .WithRetainFlag(retain)
-            .Build();
+            .WithRetainFlag(retain);
+        if (traceParent is not null)
+            builder.WithUserProperty(TraceContext.TraceParent, traceParent);
+        var message = builder.Build();
         return _client.PublishAsync(message, ct);
     }
 

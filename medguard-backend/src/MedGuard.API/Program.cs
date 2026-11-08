@@ -1,11 +1,16 @@
+using Microsoft.EntityFrameworkCore;
 using MedGuard.API.Middleware;
 using MedGuard.API.Realtime;
 using MedGuard.Application;
 using MedGuard.Application.Bases;
 using MedGuard.Infrastructure;
+using MedGuard.Infrastructure.Persistence;
+using MedGuard.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
+// Serilog, OpenTelemetry, health checks: same setup as the bridge and worker (ADR 0011).
+builder.AddServiceDefaults("medguard-api");
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -38,7 +43,15 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddScoped<ResponseHandler>();
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(builder.Configuration);
+// EF retries transient SQL errors for API requests (ADR 0010); the worker opts out.
+builder.Services.AddInfrastructure(builder.Configuration, enableRetryOnFailure: true);
+
+// Readiness = "can serve requests": the database must answer.
+var health = builder.Services.AddHealthChecks()
+    .AddDbContextCheck<MedGuardDbContext>("sql", tags: [ServiceDefaultsExtensions.Ready],
+        // A plain query, not the default CanConnect: on SQL Server, CanConnect retries
+        // a failed login for a full minute (it waits for databases being created).
+        customTestQuery: (db, ct) => db.Database.SqlQueryRaw<int>("SELECT 1 AS Value").AnyAsync(ct));
 
 var identityServerAuthority = builder.Configuration["IdentityServer:Authority"]!;
 var apiScope = builder.Configuration["IdentityServer:ApiScope"]!;
@@ -96,7 +109,9 @@ var realtimeEnabled = builder.Configuration.GetValue<bool>("Notifier:Enabled");
 if (realtimeEnabled)
 {
     builder.Services.AddSignalR();
+    builder.Services.AddSingleton<NotifierHealth>();
     builder.Services.AddHostedService<KafkaNotifier>();
+    health.AddCheck<NotifierHealthCheck>("live-feed", tags: [ServiceDefaultsExtensions.Ready]);
 }
 
 var app = builder.Build();
@@ -131,6 +146,9 @@ if (!app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+// Anonymous on purpose: probes don't carry tokens, and the JSON reveals
+// component states only, no data.
+app.MapHealthEndpoints();
 // Not mapped at all when disabled: the client's connect attempt then fails fast
 // (404 on /negotiate) and the page falls back to polling.
 if (realtimeEnabled)

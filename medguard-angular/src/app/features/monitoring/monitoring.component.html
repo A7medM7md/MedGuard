@@ -7,14 +7,14 @@
   <ng-template #liveIndicator>
     <span
       class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-2xs font-semibold text-muted-foreground"
-      [attr.title]="feedState() === 'live' ? 'Readings and alerts are pushed as they happen' : 'No live feed — refreshing every 10 seconds'"
+      [attr.title]="feedState() === 'live' ? 'Readings and alerts are pushed as they happen' : feedState() === 'stale' ? 'Connected, but the live feed stopped (no heartbeat, or Kafka down) — refreshing every 10 seconds' : 'No live feed — refreshing every 10 seconds'"
     >
       <svg
         [lucideIcon]="Activity"
         class="h-3.5 w-3.5"
         [ngClass]="{
           'animate-status-pulse text-safe': feedState() === 'live',
-          'animate-pulse text-warning': feedState() === 'connecting',
+          'animate-pulse text-warning': feedState() === 'connecting' || feedState() === 'stale',
           'text-muted-foreground': feedState() === 'offline'
         }"
         aria-hidden="true"
@@ -22,6 +22,7 @@
       @switch (feedState()) {
         @case ('live') { Live · push }
         @case ('connecting') { Connecting… }
+        @case ('stale') { Feed stalled · polling }
         @default { Polling · every 10s }
       }
     </span>
@@ -32,7 +33,7 @@
     <ul class="divide-y divide-border">
       <li *ngFor="let a of recentAlerts()" class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-3 px-4 py-2 text-xs">
         <span class="font-bold" [ngClass]="severityTone(a)">{{ a.severity }}</span>
-        <a routerLink="/batches/{{ a.batchId }}" class="truncate text-foreground hover:underline">
+        <a routerLink="/batches/{{ a.batchId }}" class="truncate text-foreground hover:underline" [attr.title]="a.traceId ? 'trace ' + a.traceId : null">
           {{ a.message }}
           <span *ngIf="a.suppressedCount > 0" class="text-muted-foreground"> (+{{ a.suppressedCount }} similar)</span>
         </a>

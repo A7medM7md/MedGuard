@@ -2,6 +2,10 @@ using System.Security.Cryptography;
 using System.Text;
 using MedGuard.DeviceSimulator;
 using Microsoft.Extensions.Configuration;
+using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 // Usage (from src/MedGuard.DeviceSimulator):
 //   dotnet run                                        5 devices, a reading every 2s
@@ -46,6 +50,22 @@ if (mode == "publish")
 // Device i reports for batch SIM-{((i-1) % batchCount) + 1}. With the default
 // (one batch per device) that's its own code, exactly as before.
 var batchCount = sim.BatchCount > 0 ? sim.BatchCount : sim.DeviceCount;
+// Tracing (ADR 0011): off unless --Observability:Enabled=true. Under load,
+// trace a sample only, e.g. --Observability:TraceSampleRatio=0.01 (1%).
+// Unsampled readings carry no traceparent, so nothing downstream traces them either.
+using var tracing = config.GetValue<bool>("Observability:Enabled")
+    ? Sdk.CreateTracerProviderBuilder()
+        .AddSource(SimulatedDevice.Tracing.Name)
+        .ConfigureResource(r => r.AddService("medguard-device-simulator"))
+        .SetSampler(new TraceIdRatioBasedSampler(config.GetValue("Observability:TraceSampleRatio", 1.0)))
+        .AddOtlpExporter(o =>
+        {
+            o.Endpoint = new Uri($"{config.GetValue("Observability:SeqUrl", "http://localhost:5341")!.TrimEnd('/')}/ingest/otlp/v1/traces");
+            o.Protocol = OtlpExportProtocol.HttpProtobuf;
+        })
+        .Build()
+    : null;
+
 var bindings = sim.Devices.Count > 0
     ? sim.Devices
     : Enumerable.Range(1, sim.DeviceCount)

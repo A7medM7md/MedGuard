@@ -1,5 +1,6 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <!-- Web SDK only for /health/live and /health/ready (ADR 0010); there's no API. -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -8,11 +9,11 @@
 
   <ItemGroup>
     <PackageReference Include="Confluent.Kafka" Version="2.15.1" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="MQTTnet" Version="5.2.0.1603" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\MedGuard.Contracts\MedGuard.Contracts.csproj" />
+    <ProjectReference Include="..\MedGuard.ServiceDefaults\MedGuard.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>
