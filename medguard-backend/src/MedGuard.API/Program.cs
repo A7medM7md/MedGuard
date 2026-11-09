@@ -134,12 +134,16 @@ if (realtimeEnabled)
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+// Always in Development; elsewhere only when Swagger:Enabled (the Docker
+// deployment turns it on). "Authorize" runs the same Code + PKCE flow as the SPA,
+// so every call is still checked against a real token.
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled"))
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
         options.OAuthClientId("medguard-angular");
+        options.OAuthScopes("openid", "profile", "medguard.api");
         options.OAuthUsePkce();
     });
 }

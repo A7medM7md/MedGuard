@@ -268,6 +268,7 @@ one multi-stage [`Dockerfile`](Dockerfile)):
 | `cloudflared` | Cloudflare Tunnel connector (production, `tunnel` profile) |
 | `migrator` | applies EF Core migrations once, then exits |
 | `sqlserver`, `kafka` (+ `kafka-init`), `hivemq` | infrastructure |
+| `grafana`, `prometheus`, `seq`, `kafka-ui`, `mqtt-web` | ops tools (`--profile ops`), each on its own sub-domain behind basic auth |
 | `simulator`, `kafkalab` | opt-in (`--profile simulator` / `--profile tools`) |
 
 ```bash
@@ -278,11 +279,25 @@ docker compose up -d --build  # then open http://localhost:8088
 **Production** — **https://medguard.dpdns.org**, through a Cloudflare Tunnel: Cloudflare
 terminates HTTPS and forwards over the tunnel to `cloudflared` → `edge`
 ([`deploy/nginx/edge.conf`](deploy/nginx/edge.conf)), so no inbound port is open on the
-server, and SPA, API and IdentityServer share one origin. Every green CI run on `main` triggers
+server, and SPA, API and IdentityServer share one origin.
+
+| URL | What |
+|---|---|
+| https://medguard.dpdns.org | the dashboard (Angular) + REST API + SignalR |
+| https://medguard.dpdns.org/identity/ | IdentityServer (login, session, permissions) |
+| https://medguard.dpdns.org/swagger | API explorer ("Authorize" signs in via IdentityServer) |
+| https://grafana.medguard.dpdns.org | pipeline dashboards |
+| https://kafka.medguard.dpdns.org | Kafka UI: topics, messages, consumer lag (read-only) |
+| https://hivemq.medguard.dpdns.org | MQTT web client; broker at `wss://hivemq.medguard.dpdns.org/mqtt` |
+| https://seq.medguard.dpdns.org | logs and traces of every service |
+| https://prometheus.medguard.dpdns.org | raw metrics |
+
+The tool sub-domains share one basic-auth login (`TOOLS_USER`/`TOOLS_PASSWORD` in the
+server's `.env`). Every green CI run on `main` triggers
 [`deploy.yml`](.github/workflows/deploy.yml): build all images → push to GHCR → SSH
 to the server → `deploy/deploy.sh <sha>` (pull, migrate, roll, wait for health).
 One-time server preparation: [`deploy/setup-server.sh`](deploy/setup-server.sh).
-Details: [ADR 0012](medguard-backend/docs/adr/0012-containerized-self-hosted-deployment.md).
+Details: [ADR 0012](medguard-backend/docs/adr/0012-containerized-self-hosted-deployment.md), [ADR 0013](medguard-backend/docs/adr/0013-public-ops-tools-and-identity-ui-fixes.md).
 
 ---
 

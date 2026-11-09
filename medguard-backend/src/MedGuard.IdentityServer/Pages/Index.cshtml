@@ -1,46 +1,52 @@
 @page
 @model MedGuard.IdentityServer.Pages.Home.Index
+@inject IConfiguration Configuration
+@{
+    // App:Url = where the dashboard lives ("/" when it shares this origin, as in
+    // the Docker deployment). Unset = no dashboard link (e.g. runasp.net).
+    var appUrl = Configuration["App:Url"];
+}
 
-<div class="welcome-page">
-    <h1>
-        <img src="~/medguard-logo.svg" class="logo">
-        Welcome to Duende IdentityServer
-        <small class="text-muted">(version @Model.Version)</small>
-    </h1>
+<div class="mg-page">
+    <div class="mg-page-head">
+        <h1>MedGuard Identity</h1>
+        <p>Sign-in and token service of the MedGuard cold-chain platform · Duende IdentityServer @Model.Version</p>
+    </div>
 
-    <ul>
-        <li>
-            IdentityServer publishes a
-            <a href="~/.well-known/openid-configuration">discovery document</a>
-            where you can find metadata and links to all the endpoints, key material, etc.
-        </li>
-        <li>
-            Click <a href="~/diagnostics">here</a> to see the claims for your current session.
-        </li>
-        <li>
-            Click <a href="~/grants">here</a> to manage your stored grants.
-        </li>
-        <li>
-            Click <a href="~/serversidesessions">here</a> to view the server side sessions.
-        </li>
-        <li>
-            Click <a href="~/ciba/all">here</a> to view your pending CIBA login requests.
-        </li>
-        <li>
-            Here are links to the
-            <a href="https://github.com/duendesoftware/IdentityServer">source code repository</a>,
-            and <a href="https://github.com/duendesoftware/samples">ready to use samples</a>.
-        </li>
-    </ul>
+    <div class="mg-link-grid">
+        @if (!string.IsNullOrWhiteSpace(appUrl))
+        {
+            <a class="mg-link-card mg-link-card--primary" href="@appUrl">
+                <strong>Open the dashboard</strong>
+                <span>Batches, live monitoring, alerts and shipments</span>
+            </a>
+        }
+        <a class="mg-link-card" href="~/diagnostics">
+            <strong>Your session</strong>
+            <span>Claims and properties of the current sign-in</span>
+        </a>
+        <a class="mg-link-card" href="~/grants">
+            <strong>Application permissions</strong>
+            <span>Review or revoke the access you granted</span>
+        </a>
+        <a class="mg-link-card" href="~/.well-known/openid-configuration">
+            <strong>Discovery document</strong>
+            <span>OpenID Connect metadata, endpoints and signing keys</span>
+        </a>
+    </div>
 
-    @if(Model.License != null)
+    @if (Model.License != null)
     {
-        <h2>License</h2>
-        <dl>
-            <dt>Serial Number</dt>
-            <dd>@Model.License.SerialNumber</dd>
-            <dt>Expiration</dt>
-            <dd>@Model.License.Expiration!.Value.ToLongDateString()</dd>
-        </dl>
+        <div class="card mg-license">
+            <div class="card-header"><h2>License</h2></div>
+            <div class="card-body">
+                <dl>
+                    <dt>Serial number</dt>
+                    <dd>@Model.License.SerialNumber</dd>
+                    <dt>Expiration</dt>
+                    <dd>@Model.License.Expiration!.Value.ToLongDateString()</dd>
+                </dl>
+            </div>
+        </div>
     }
 </div>

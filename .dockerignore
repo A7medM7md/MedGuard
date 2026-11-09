@@ -27,7 +27,6 @@ medguard-backend/src/MedGuard.IdentityServer/keys
 medguard-backend/tests
 medguard-backend/loadtest
 medguard-backend/docs
-medguard-backend/observability
 deploy/*
 !deploy/nginx
 **/*.md

@@ -13,8 +13,8 @@
 
         @if (Model.View.PostLogoutRedirectUri != null)
         {
-            <p class="mg-auth-foot" style="margin-top: 0;">
-                <a class="PostLogoutRedirectUri btn btn-primary" style="display: block; width: 100%; text-decoration: none;" href="@Model.View.PostLogoutRedirectUri">
+            <p class="mg-auth-foot mg-auth-foot--flush">
+                <a class="PostLogoutRedirectUri btn btn-primary btn-block" href="@Model.View.PostLogoutRedirectUri">
                     Return to @Model.View.ClientName
                 </a>
             </p>
@@ -31,6 +31,6 @@
 {
     @if (Model.View.AutomaticRedirectAfterSignOut)
     {
-        <script src="~/js/signout-redirect.js"></script>
+        <script src="~/js/signout-redirect.js" asp-append-version="true"></script>
     }
 }

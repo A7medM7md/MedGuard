@@ -26,7 +26,7 @@
             <div class="card">
                 <div class="card-header">
                     <div class="row">
-                        <div class="col-sm-8 card-title">
+                        <div class="col-8 card-title">
                             @if (grant.ClientLogoUrl != null)
                             {
                                 <img src="@grant.ClientLogoUrl">
@@ -34,7 +34,7 @@
                             <strong>@grant.ClientName</strong>
                         </div>
 
-                        <div class="col-sm-2">
+                        <div class="col-4 text-right">
                             <form asp-page="/Grants/Index">
                                 <input type="hidden" name="clientId" value="@grant.ClientId">
                                 <button class="btn btn-danger">Revoke Access</button>

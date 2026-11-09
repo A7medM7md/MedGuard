@@ -3,21 +3,28 @@
 #   cp .env.example .env    # then set real secrets
 #   docker compose up -d --build                       # build from source, open http://localhost:8088
 #   docker compose pull && docker compose up -d        # run the images CI pushed to GHCR
+#   docker compose --profile ops up -d                 # + Grafana, Prometheus, Seq, Kafka UI, MQTT web client
 #   docker compose --profile simulator up -d simulator # + fake MQTT devices
 #   docker compose --profile tools run --rm kafkalab metadata
 #
 # Production (https://medguard.dpdns.org) is deployed by .github/workflows/deploy.yml.
 # Traffic path, no inbound port open on the server:
 #
-#   browser --https--> Cloudflare --tunnel--> cloudflared --> edge (nginx, path router)
-#                                                               /identity/* -> identity (Kestrel, Duende)
-#                                                               /*          -> api      (Kestrel: REST, SignalR, Angular SPA)
+#   browser --https--> Cloudflare --tunnel--> cloudflared --> edge (nginx router, deploy/nginx/)
+#     medguard.dpdns.org/identity/*  -> identity    (Kestrel, Duende)
+#     medguard.dpdns.org/*           -> api         (Kestrel: REST, /swagger, SignalR, Angular SPA)
+#     grafana.medguard.dpdns.org     -> grafana     }
+#     kafka.medguard.dpdns.org       -> kafka-ui    }  "ops" profile,
+#     hivemq.medguard.dpdns.org      -> mqtt-web + hivemq:8000/mqtt (MQTT over WebSocket)
+#     seq.medguard.dpdns.org         -> seq         }  behind basic auth
+#     prometheus.medguard.dpdns.org  -> prometheus  }  (TOOLS_USER / TOOLS_PASSWORD)
 #
-# so the SPA, the API and IdentityServer share one origin. cloudflared is in the
-# "tunnel" profile: the server's .env sets COMPOSE_PROFILES=tunnel and the token.
+# so the SPA, the API and IdentityServer share one origin. The server's .env sets
+# COMPOSE_PROFILES=tunnel,ops, the tunnel token and the tools password.
 #
 # Only `edge` (127.0.0.1:8088, for local use and troubleshooting) and SQL Server
-# (127.0.0.1:14330, for an SSH tunnel) publish ports on the host.
+# (127.0.0.1:14330, for an SSH tunnel) publish ports on the host. Locally the
+# tools answer on http://grafana.localhost:8088 etc.
 #
 # For local development of the pipeline alone, medguard-backend/docker-compose.yml
 # (Kafka + HiveMQ + observability, apps run from the IDE) is still the tool.
@@ -32,6 +39,13 @@ x-logging: &logging
 
 x-db-connection: &db-connection
   ConnectionStrings__MedGuardDb: "Server=sqlserver,1433;Database=MedGuard;User Id=sa;Password=${SQL_SA_PASSWORD:?set SQL_SA_PASSWORD in .env};TrustServerCertificate=True;Encrypt=True"
+
+# Logs + traces -> Seq, metrics -> Prometheus (ADR 0011). Turn on together with
+# the "ops" profile (OBSERVABILITY_ENABLED=true), or the apps export to nowhere.
+x-observability: &observability
+  Observability__Enabled: ${OBSERVABILITY_ENABLED:-false}
+  Observability__SeqUrl: http://seq:80
+  Observability__PrometheusOtlpUrl: http://prometheus:9090/api/v1/otlp/v1/metrics
 
 services:
   # ------------------------------------------------------------------ data
@@ -157,6 +171,8 @@ services:
       Spa__Origins: ${SPA_ORIGINS:-https://medguard.dpdns.org}
       M2M__ClientSecret: ${M2M_CLIENT_SECRET:?set M2M_CLIENT_SECRET in .env}
       Duende__LicenseKey: ${DUENDE_LICENSE_KEY:-}
+      # The dashboard shares this origin: the identity home page links to it.
+      App__Url: /
     volumes:
       - identity-data:/app/data
     mem_limit: 384m
@@ -171,7 +187,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
-      <<: *db-connection
+      <<: [*db-connection, *observability]
+      # Swagger UI at /swagger ("Authorize" signs in through IdentityServer).
+      Swagger__Enabled: ${SWAGGER_ENABLED:-true}
       IdentityServer__Authority: ${PUBLIC_AUTHORITY:-https://medguard.dpdns.org/identity}
       # Keys are fetched over the Docker network; the issuers the browser saw are listed.
       IdentityServer__MetadataAddress: http://identity:8080/identity/.well-known/openid-configuration
@@ -191,12 +209,17 @@ services:
     logging: *logging
 
   # ------------------------------------------------------------------ entry point
-  # Path router: /identity/* -> identity, everything else -> api (deploy/nginx/edge.conf).
+  # Router: /identity/* -> identity, everything else -> api, <tool>.<domain> ->
+  # the ops tools behind basic auth (deploy/nginx/).
   edge:
     image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-edge:${IMAGE_TAG:-latest}
     build:
       context: .
       target: edge
+    environment:
+      TOOLS_USER: ${TOOLS_USER:-admin}
+      # Empty = the tool sub-domains refuse every login.
+      TOOLS_PASSWORD: ${TOOLS_PASSWORD:-}
     depends_on:
       - api
       - identity
@@ -224,6 +247,93 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # ------------------------------------------------------------------ ops tools ("ops" profile)
+  # Reached only through edge (<tool>.<domain>, basic auth); no host ports.
+
+  # Kafka UI: topics, partitions, messages, consumer-group lag. Read-only:
+  # browsing can't delete topics or reset offsets (flip KAFKA_UI_READONLY to change).
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.3.0
+    profiles: ["ops"]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: medguard
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_READONLY: ${KAFKA_UI_READONLY:-true}
+      JAVA_OPTS: "-Xms128m -Xmx256m"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    mem_limit: 400m
+    restart: unless-stopped
+    logging: *logging
+
+  # MQTT web client (MQTTX Web) for watching/publishing on HiveMQ. In the
+  # browser, connect to wss://hivemq.<domain>:443/mqtt.
+  mqtt-web:
+    image: emqx/mqttx-web:v1.12.0
+    profiles: ["ops"]
+    mem_limit: 96m
+    restart: unless-stopped
+    logging: *logging
+
+  # Logs (Serilog) and traces (OTLP) of every service.
+  seq:
+    image: datalust/seq:2025.1
+    profiles: ["ops"]
+    environment:
+      ACCEPT_EULA: "Y"
+      # No Seq login of its own: it is only reachable through edge's basic auth.
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
+    volumes:
+      - seq-data:/data
+    mem_limit: 1g
+    restart: unless-stopped
+    logging: *logging
+
+  # Metrics, pushed by the services over OTLP.
+  prometheus:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-prometheus:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: prometheus
+    profiles: ["ops"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - prometheus-data:/prometheus
+    mem_limit: 400m
+    restart: unless-stopped
+    logging: *logging
+
+  # Dashboards (provisioned from medguard-backend/observability/grafana). No
+  # login form: edge's basic-auth user is signed in via auth proxy, as Admin.
+  # No volume: everything that matters is provisioned from the image.
+  grafana:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-grafana:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: grafana
+    profiles: ["ops"]
+    environment:
+      GF_SERVER_ROOT_URL: https://grafana.${PUBLIC_DOMAIN:-medguard.dpdns.org}/
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: ${TOOLS_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${TOOLS_PASSWORD:-}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    depends_on:
+      - prometheus
+    mem_limit: 256m
+    restart: unless-stopped
+    logging: *logging
+
   # ------------------------------------------------------------------ pipeline workers
   ingestion-bridge:
     image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-ingestion-bridge:${IMAGE_TAG:-latest}
@@ -235,6 +345,7 @@ services:
       Bridge__MqttHost: hivemq
       Bridge__MqttPort: "1883"
       Bridge__KafkaBootstrapServers: kafka:29092
+      <<: *observability
     depends_on:
       hivemq:
         condition: service_started
@@ -251,7 +362,7 @@ services:
       target: monitoring-worker
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      <<: *db-connection
+      <<: [*db-connection, *observability]
       Monitoring__KafkaBootstrapServers: kafka:29092
     depends_on:
       migrator:
@@ -296,3 +407,5 @@ volumes:
   mssql-data:
   kafka-data:
   identity-data:
+  seq-data:
+  prometheus-data:

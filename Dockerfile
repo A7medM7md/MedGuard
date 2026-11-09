@@ -7,7 +7,8 @@
 #   identity           -> MedGuard.IdentityServer (Duende) on Kestrel
 #   ingestion-bridge   -> MQTT -> Kafka bridge
 #   monitoring-worker  -> Kafka -> SQL consumer + outbox dispatcher
-#   edge               -> nginx path router: /identity/ -> identity, the rest -> api
+#   edge               -> nginx router: /identity/ -> identity, the rest -> api, <tool>.<domain> -> ops tools
+#   prometheus, grafana -> observability images with the repo's config baked in
 #   migrator           -> EF Core migrations bundle (runs once, then exits)
 #   simulator          -> fake MQTT devices (demo / load test)
 #   kafkalab           -> the Kafka fundamentals lab CLI
@@ -125,10 +126,24 @@ COPY --from=publish-kafkalab /out ./
 USER $APP_UID
 ENTRYPOINT ["dotnet", "MedGuard.KafkaLab.dll"]
 
-# Path router in front of the two Kestrel apps (Cloudflare Tunnel -> edge).
-# The config is baked in, so it is versioned and deployed with the app images.
+# Path/host router in front of the Kestrel apps and the ops tools
+# (Cloudflare Tunnel -> edge). The config is baked in, so it is versioned and
+# deployed with the app images; the basic-auth file is written at start-up.
 FROM nginx:1.27-alpine AS edge
-COPY deploy/nginx/edge.conf /etc/nginx/conf.d/default.conf
+RUN apk add --no-cache openssl && mkdir -p /etc/nginx/medguard
+COPY deploy/nginx/edge.conf  /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/tools.conf /etc/nginx/conf.d/tools.conf
+COPY deploy/nginx/common.inc deploy/nginx/tools-auth.inc /etc/nginx/medguard/
+COPY --chmod=755 deploy/nginx/40-medguard-htpasswd.sh /docker-entrypoint.d/
+
+# Observability (ADR 0011) with its config baked in: the server only has
+# docker-compose.yml, not the repo.
+FROM prom/prometheus:v3.4.1 AS prometheus
+COPY medguard-backend/observability/prometheus.yml /etc/prometheus/prometheus.yml
+
+FROM grafana/grafana:12.0.2 AS grafana
+COPY medguard-backend/observability/grafana/provisioning /etc/grafana/provisioning
+COPY medguard-backend/observability/grafana/dashboards  /var/lib/grafana/dashboards
 
 FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION} AS migrator
 WORKDIR /app

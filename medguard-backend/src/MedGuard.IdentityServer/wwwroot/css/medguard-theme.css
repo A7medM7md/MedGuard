@@ -107,7 +107,8 @@ label { font-size: 0.75rem; font-weight: 600; color: var(--muted-foreground); te
 
 /* --- Auth shell: the centered card used by Login / Logout / LoggedOut --- */
 .mg-auth-shell {
-  min-height: calc(100vh - 6rem);
+  /* viewport - navbar (~52px) - body-container padding (2 x 2.5rem) */
+  min-height: calc(100vh - 52px - 5rem);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,3 +150,67 @@ label { font-size: 0.75rem; font-weight: 600; color: var(--muted-foreground); te
 .mg-auth-actions { display: flex; gap: 0.5rem; }
 .mg-auth-actions .btn { flex: 1; }
 .mg-auth-foot { margin-top: 1.25rem; text-align: center; font-size: 0.72rem; color: var(--muted-foreground); }
+
+/* Replaces the inline style="" attributes the CSP (rightly) blocks. */
+.mg-remember label { margin: 0; }
+.mg-auth-foot--flush { margin-top: 0; }
+.btn-block { display: block; width: 100%; }
+a.btn { text-decoration: none; }
+
+/* --- Generic Duende pages (Home, Diagnostics, Grants, Consent, Device, Error) --- */
+h1, h2, h3 { color: var(--foreground); letter-spacing: -0.01em; }
+.lead, .mg-page-head { margin-bottom: 1.5rem; }
+.lead h1, .mg-page-head h1 { font-size: 1.4rem; font-weight: 700; margin: 0 0 0.25rem; }
+.lead p, .mg-page-head p { font-size: 0.85rem; color: var(--muted-foreground); margin: 0; }
+.card { margin-bottom: 1rem; }
+.card-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; }
+.card-body { font-size: 0.8rem; }
+dl { margin: 0; }
+dl dt {
+  font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
+  color: var(--muted-foreground); margin-top: 0.75rem;
+}
+dl dt:first-child { margin-top: 0; }
+/* Claim values, client ids and tokens are long unbroken strings: wrap them
+   instead of pushing the page wider than the screen. */
+dl dd { margin: 0.1rem 0 0; overflow-wrap: anywhere; word-break: break-word; }
+.list-group-item { border-color: var(--border); font-size: 0.8rem; background-color: var(--card); }
+.alert { border-radius: var(--radius); font-size: 0.8rem; }
+.alert-info { background-color: var(--primary-100); border: 1px solid var(--border); color: var(--primary-900); }
+.btn-danger { background-color: var(--critical); border-color: var(--critical); }
+.request-id { font-size: 0.72rem; color: var(--muted-foreground); }
+.text-muted { color: var(--muted-foreground) !important; }
+
+/* Home: link cards */
+.mg-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.mg-link-card {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  padding: 1rem 1.1rem;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mg-link-card:hover { border-color: var(--primary-600); box-shadow: 0 0 0 2px var(--primary-100); color: var(--foreground); text-decoration: none; }
+.mg-link-card strong { font-size: 0.9rem; }
+.mg-link-card span { font-size: 0.78rem; color: var(--muted-foreground); }
+.mg-link-card--primary { background-color: var(--primary-600); border-color: var(--primary-600); color: #fff; }
+.mg-link-card--primary span { color: var(--primary-100); }
+.mg-link-card--primary:hover { background-color: var(--primary-700); color: #fff; }
+
+/* --- Phones --- */
+@media (max-width: 576px) {
+  .body-container { padding: 1.25rem 0.75rem; }
+  .mg-auth-shell { min-height: auto; padding-top: 0.5rem; }
+  .mg-auth-card { padding: 1.5rem 1.1rem; box-shadow: none; }
+  .nav-page .navbar { padding: 0.6rem 0.9rem; }
+  .lead h1, .mg-page-head h1 { font-size: 1.2rem; }
+}

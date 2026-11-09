@@ -27,7 +27,9 @@ if [ ! -f "$APP_DIR/.env" ]; then
     SQL_PWD="Mg-$(gen 24)-9a!"
     sed -e "s|^SQL_SA_PASSWORD=.*|SQL_SA_PASSWORD=${SQL_PWD}|" \
         -e "s|^M2M_CLIENT_SECRET=.*|M2M_CLIENT_SECRET=$(gen 40)|" \
-        -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=tunnel|" \
+        -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=tunnel,ops|" \
+        -e "s|^TOOLS_PASSWORD=.*|TOOLS_PASSWORD=$(gen 24)|" \
+        -e "s|^OBSERVABILITY_ENABLED=.*|OBSERVABILITY_ENABLED=true|" \
         -e "s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}|" \
         "$REPO_DIR/.env.example" > "$APP_DIR/.env"
     chown "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR/.env"
@@ -39,6 +41,8 @@ fi
 cat <<'EOF'
 
 Done. Next:
-  - Cloudflare dashboard: the tunnel's public hostname medguard.dpdns.org -> HTTP  edge:80
+  - Cloudflare dashboard, tunnel -> public hostnames, all of them -> HTTP  edge:80 :
+      medguard.dpdns.org, grafana., kafka., hivemq., seq., prometheus.medguard.dpdns.org
+  - ops tools login: TOOLS_USER / TOOLS_PASSWORD in /opt/medguard/.env
   - first deploy: push to main (CI), or:  cd /opt/medguard && docker compose up -d
 EOF

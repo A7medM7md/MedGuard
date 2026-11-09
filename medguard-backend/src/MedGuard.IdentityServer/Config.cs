@@ -70,7 +70,8 @@ public static class Config
                 RequireClientSecret = false,
                 RequirePkce = true,
 
-                RedirectUris = spaOrigins.SelectMany(o => new[] { o + "/", o + "/index.html" }).ToList(),
+                // + the API's Swagger UI when it is served from the same origin (Docker deployment).
+                RedirectUris = spaOrigins.SelectMany(o => new[] { o + "/", o + "/index.html", o + "/swagger/oauth2-redirect.html" }).ToList(),
                 PostLogoutRedirectUris = spaOrigins.Select(o => o + "/").ToList(),
                 // Must be bare origins (scheme+host+port), no path or trailing slash — Duende
                 // matches this against the browser's literal `Origin` header, which never has
