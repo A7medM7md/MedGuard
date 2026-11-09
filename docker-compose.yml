@@ -1,0 +1,298 @@
+# MedGuard: the whole application in containers.
+#
+#   cp .env.example .env    # then set real secrets
+#   docker compose up -d --build                       # build from source, open http://localhost:8088
+#   docker compose pull && docker compose up -d        # run the images CI pushed to GHCR
+#   docker compose --profile simulator up -d simulator # + fake MQTT devices
+#   docker compose --profile tools run --rm kafkalab metadata
+#
+# Production (https://medguard.dpdns.org) is deployed by .github/workflows/deploy.yml.
+# Traffic path, no inbound port open on the server:
+#
+#   browser --https--> Cloudflare --tunnel--> cloudflared --> edge (nginx, path router)
+#                                                               /identity/* -> identity (Kestrel, Duende)
+#                                                               /*          -> api      (Kestrel: REST, SignalR, Angular SPA)
+#
+# so the SPA, the API and IdentityServer share one origin. cloudflared is in the
+# "tunnel" profile: the server's .env sets COMPOSE_PROFILES=tunnel and the token.
+#
+# Only `edge` (127.0.0.1:8088, for local use and troubleshooting) and SQL Server
+# (127.0.0.1:14330, for an SSH tunnel) publish ports on the host.
+#
+# For local development of the pipeline alone, medguard-backend/docker-compose.yml
+# (Kafka + HiveMQ + observability, apps run from the IDE) is still the tool.
+
+name: medguard-stack
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-db-connection: &db-connection
+  ConnectionStrings__MedGuardDb: "Server=sqlserver,1433;Database=MedGuard;User Id=sa;Password=${SQL_SA_PASSWORD:?set SQL_SA_PASSWORD in .env};TrustServerCertificate=True;Encrypt=True"
+
+services:
+  # ------------------------------------------------------------------ data
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      # Express: free for production use (10 GB per database).
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${SQL_SA_PASSWORD:?set SQL_SA_PASSWORD in .env}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    ports:
+      # For SSMS/Azure Data Studio through an SSH tunnel; loopback only.
+      - "127.0.0.1:${SQL_PORT:-14330}:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" -b -o /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    mem_limit: 2560m
+    restart: unless-stopped
+    logging: *logging
+
+  # ------------------------------------------------------------------ messaging
+  # MQTT broker: the edge devices publish to.
+  hivemq:
+    image: hivemq/hivemq-ce:2025.5
+    environment:
+      JAVA_OPTS: "-Xms256m -Xmx384m"
+    ports:
+      - "${MQTT_BIND:-127.0.0.1}:${MQTT_PORT:-1883}:1883"
+    mem_limit: 512m
+    restart: unless-stopped
+    logging: *logging
+
+  # Kafka in KRaft mode, one node. Same settings as medguard-backend/docker-compose.yml,
+  # but internal only (no host listener) and with its log persisted in a volume.
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qg
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: "-Xms384m -Xmx512m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    mem_limit: 900m
+    restart: unless-stopped
+    logging: *logging
+
+  # One-shot: creates the topics (idempotent), then exits.
+  kafka-init:
+    image: apache/kafka:3.9.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        T=/opt/kafka/bin/kafka-topics.sh
+        B=kafka:29092
+        $$T --bootstrap-server $$B --create --if-not-exists --topic sensor-readings     --partitions 6 --replication-factor 1 --config retention.ms=604800000
+        $$T --bootstrap-server $$B --create --if-not-exists --topic sensor-readings.dlq --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic batch-alerts        --partitions 3 --replication-factor 1
+        $$T --bootstrap-server $$B --list
+    mem_limit: 256m
+    restart: "no"
+    logging: *logging
+
+  # ------------------------------------------------------------------ one-shot jobs
+  # Applies EF Core migrations (creates the database on first run), then exits.
+  # The API and the worker only start once it succeeded.
+  migrator:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-migrator:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: migrator
+    # The bundle builds the API's host to find the DbContext, so it reads the
+    # connection string exactly like the API does (env var), no --connection needed.
+    environment:
+      <<: *db-connection
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: "no"
+    logging: *logging
+
+  # ------------------------------------------------------------------ web apps (Kestrel)
+  identity:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-identity:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: identity
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Trust X-Forwarded-Proto/For from the reverse proxy, so Duende sees https.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      PathBase: /identity
+      DataPath: /app/data
+      Cookies__SameSite: Lax
+      Spa__Origins: ${SPA_ORIGINS:-https://medguard.dpdns.org}
+      M2M__ClientSecret: ${M2M_CLIENT_SECRET:?set M2M_CLIENT_SECRET in .env}
+      Duende__LicenseKey: ${DUENDE_LICENSE_KEY:-}
+    volumes:
+      - identity-data:/app/data
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-api:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      <<: *db-connection
+      IdentityServer__Authority: ${PUBLIC_AUTHORITY:-https://medguard.dpdns.org/identity}
+      # Keys are fetched over the Docker network; the issuers the browser saw are listed.
+      IdentityServer__MetadataAddress: http://identity:8080/identity/.well-known/openid-configuration
+      IdentityServer__ValidIssuers: ${VALID_ISSUERS:-https://medguard.dpdns.org/identity}
+      # Kafka is here, so the live Monitoring feed (SignalR) is on.
+      Notifier__Enabled: "true"
+      Notifier__KafkaBootstrapServers: kafka:29092
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      identity:
+        condition: service_started
+    mem_limit: 512m
+    restart: unless-stopped
+    logging: *logging
+
+  # ------------------------------------------------------------------ entry point
+  # Path router: /identity/* -> identity, everything else -> api (deploy/nginx/edge.conf).
+  edge:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-edge:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: edge
+    depends_on:
+      - api
+      - identity
+    ports:
+      - "${EDGE_BIND:-127.0.0.1}:${EDGE_PORT:-8088}:80"
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: *logging
+
+  # Cloudflare Tunnel connector: an OUTBOUND connection to Cloudflare, so no port
+  # has to be opened on the firewall. Its public hostname is configured in the
+  # Cloudflare dashboard: medguard.dpdns.org -> http://edge:80.
+  # http2, not the default QUIC: the office firewall stalls QUIC streams.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "run"]
+    environment:
+      # `:-` not `:?`: compose checks variables even for inactive profiles, and
+      # local runs / CI builds have no token.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - edge
+    mem_limit: 128m
+    restart: unless-stopped
+    logging: *logging
+
+  # ------------------------------------------------------------------ pipeline workers
+  ingestion-bridge:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-ingestion-bridge:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: ingestion-bridge
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Bridge__MqttHost: hivemq
+      Bridge__MqttPort: "1883"
+      Bridge__KafkaBootstrapServers: kafka:29092
+    depends_on:
+      hivemq:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *logging
+
+  monitoring-worker:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-monitoring-worker:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: monitoring-worker
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      <<: *db-connection
+      Monitoring__KafkaBootstrapServers: kafka:29092
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    mem_limit: 512m
+    restart: unless-stopped
+    logging: *logging
+
+  # ------------------------------------------------------------------ opt-in
+  # Fake devices publishing over MQTT. Opt-in: its SIM-xxxx devices have no batch
+  # in the production database, so the worker dead-letters their readings unless
+  # you bind real devices (Simulation:Devices) or seed batches (loadtest/).
+  simulator:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-simulator:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: simulator
+    profiles: ["simulator"]
+    command: ["--Mqtt:Host=hivemq", "--Mqtt:Port=1883", "--Simulation:DeviceCount=${SIM_DEVICES:-5}"]
+    depends_on:
+      - hivemq
+    mem_limit: 256m
+    restart: unless-stopped
+    logging: *logging
+
+  # The Kafka lab CLI: docker compose --profile tools run --rm kafkalab metadata
+  kafkalab:
+    image: ${REGISTRY:-ghcr.io/a7medm7md}/medguard-kafkalab:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      target: kafkalab
+    profiles: ["tools"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+    depends_on:
+      - kafka
+    restart: "no"
+
+volumes:
+  mssql-data:
+  kafka-data:
+  identity-data:

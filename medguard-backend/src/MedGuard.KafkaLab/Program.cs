@@ -13,7 +13,9 @@ using Confluent.Kafka.Admin;
 //                                  load-test backlog / batch-path failure cases (ADR 0008)
 
 Console.OutputEncoding = Encoding.UTF8;
-const string Bootstrap = "localhost:9092";
+// KAFKA_BOOTSTRAP lets the same lab run inside the Docker network
+// (docker compose --profile tools run --rm kafkalab metadata -> kafka:29092).
+var Bootstrap = Environment.GetEnvironmentVariable("KAFKA_BOOTSTRAP") ?? "localhost:9092";
 
 var cmd = args.ElementAtOrDefault(0);
 var opts = args.Where(a => a.Contains('=')).Select(a => a.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);

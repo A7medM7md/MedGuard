@@ -61,6 +61,24 @@ builder.Services
     .AddJwtBearer(options =>
     {
         options.Authority = identityServerAuthority;
+
+        // Self-hosted in Docker (docker-compose.yml), the public issuer
+        // (https://medguard.dpdns.org/identity) would mean a round trip out through
+        // Cloudflare and back in through the tunnel, so the signing keys are fetched
+        // from IdentityServer's internal address instead, and the public issuer(s)
+        // the browser saw are listed explicitly. Unset = the old behaviour (all
+        // derived from Authority).
+        var metadataAddress = builder.Configuration["IdentityServer:MetadataAddress"];
+        if (!string.IsNullOrWhiteSpace(metadataAddress))
+        {
+            options.MetadataAddress = metadataAddress;
+            options.RequireHttpsMetadata = metadataAddress.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        }
+        var validIssuers = (builder.Configuration["IdentityServer:ValidIssuers"] ?? "")
+            .Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (validIssuers.Length > 0)
+            options.TokenValidationParameters.ValidIssuers = validIssuers;
+
         // No single audience is registered per-API in this setup — Duende emits a
         // static "{issuer}/resources" audience instead. Authorization is enforced
         // by the "ApiScope" policy below (checking the `scope` claim), not by
@@ -130,6 +148,25 @@ app.UseCors("AllowAll");
 
 app.UseMedGuardExceptionHandling();
 
+// The Angular SPA, when its build is in wwwroot (the Docker image puts it there;
+// local dev runs `ng serve` instead and wwwroot doesn't exist). Kestrel serves
+// it directly; hashed bundles are cached forever, index.html never, so a deploy
+// is picked up on the next page load.
+var spaIndex = app.Environment.WebRootPath is { } webRoot ? Path.Combine(webRoot, "index.html") : null;
+var hostSpa = spaIndex is not null && File.Exists(spaIndex);
+var spaStaticFiles = new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var headers = ctx.Context.Response.Headers;
+        headers.CacheControl = ctx.File.Name == "index.html"
+            ? "no-cache, no-store, must-revalidate"
+            : "public, max-age=31536000, immutable";
+    },
+};
+if (hostSpa)
+    app.UseStaticFiles(spaStaticFiles);
+
 // Skipped in Development: when the API is launched with both an http and an https
 // binding (the default launchSettings profile), redirecting http -> https here
 // sends the browser to a DIFFERENT ORIGIN (different port). Per the Fetch spec,
@@ -153,5 +190,16 @@ app.MapHealthEndpoints();
 // (404 on /negotiate) and the page falls back to polling.
 if (realtimeEnabled)
     app.MapHub<MonitoringHub>(MonitoringHub.Path);
+
+if (hostSpa)
+{
+    // Unknown /api, /hubs and /health URLs stay 404s instead of returning the SPA's
+    // HTML. Every other unmatched path is a client-side route (e.g. /batches/42):
+    // serve index.html and let the Angular router take it from there.
+    app.MapFallback("/api/{**rest}", () => Results.NotFound());
+    app.MapFallback("/hubs/{**rest}", () => Results.NotFound());
+    app.MapFallback("/health/{**rest}", () => Results.NotFound());
+    app.MapFallbackToFile("index.html", spaStaticFiles);
+}
 
 app.Run();

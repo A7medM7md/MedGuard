@@ -24,8 +24,27 @@ public static class Config
             new ApiScope(ApiScopeName, "MedGuard API"),
         };
 
-    public static IEnumerable<Client> Clients =>
-        new Client[]
+    // The deployments that existed before configuration was added. Extra origins
+    // (e.g. the self-hosted https://medguard.dpdns.org) come from "Spa:Origins".
+    private static readonly string[] DefaultSpaOrigins = { "https://medguardd.vercel.app", "http://localhost:4200" };
+
+    /// <summary>
+    /// Config keys (all optional):
+    ///   Spa:Origins       extra SPA origins, ';' or ',' separated, e.g. "https://medguard.dpdns.org"
+    ///   M2M:ClientSecret  secret of the medguard-m2m client (defaults to the dev secret)
+    /// </summary>
+    public static IEnumerable<Client> GetClients(IConfiguration configuration)
+    {
+        var spaOrigins = DefaultSpaOrigins
+            .Concat((configuration["Spa:Origins"] ?? "")
+                .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Select(o => o.TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var m2mSecret = configuration["M2M:ClientSecret"];
+        if (string.IsNullOrWhiteSpace(m2mSecret)) m2mSecret = "medguard-m2m-dev-secret";
+
+        return new Client[]
         {
             // Machine-to-machine: server-side scripts/health checks and, later, an
             // IoT gateway's own service account (separate from a future per-device
@@ -35,7 +54,7 @@ public static class Config
                 ClientId = "medguard-m2m",
                 ClientName = "MedGuard Service Client",
                 AllowedGrantTypes = GrantTypes.ClientCredentials,
-                ClientSecrets = { new Secret("medguard-m2m-dev-secret".Sha256()) },
+                ClientSecrets = { new Secret(m2mSecret.Sha256()) },
                 AllowedScopes = { ApiScopeName },
             },
 
@@ -51,12 +70,12 @@ public static class Config
                 RequireClientSecret = false,
                 RequirePkce = true,
 
-                RedirectUris = { "https://medguardd.vercel.app/", "https://medguardd.vercel.app/index.html", "http://localhost:4200/", "http://localhost:4200/index.html" },
-                PostLogoutRedirectUris = { "https://medguardd.vercel.app/", "http://localhost:4200/" },
+                RedirectUris = spaOrigins.SelectMany(o => new[] { o + "/", o + "/index.html" }).ToList(),
+                PostLogoutRedirectUris = spaOrigins.Select(o => o + "/").ToList(),
                 // Must be bare origins (scheme+host+port), no path or trailing slash — Duende
                 // matches this against the browser's literal `Origin` header, which never has
                 // one. A trailing slash here silently breaks CORS for the deployed SPA.
-                AllowedCorsOrigins = { "https://medguardd.vercel.app", "http://localhost:4200" },
+                AllowedCorsOrigins = spaOrigins.ToList(),
 
                 AllowedScopes = { "openid", "profile", "roles", ApiScopeName, "offline_access" },
                 AllowOfflineAccess = true,
@@ -72,4 +91,5 @@ public static class Config
                 AlwaysIncludeUserClaimsInIdToken = true,
             },
         };
+    }
 }

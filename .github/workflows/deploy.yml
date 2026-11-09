@@ -1,0 +1,141 @@
+name: Deploy
+
+# Continuous deployment to the Linux server behind https://medguard.dpdns.org
+# (Cloudflare Tunnel -> cloudflared container on the server; no inbound ports).
+#
+#   CI (ci.yml) green on main  ->  build all images, push to GHCR  ->  SSH to the
+#   server, upload docker-compose.yml, pull the new tag, roll the stack.
+#
+# "Run workflow" (workflow_dispatch) deploys the selected branch's head without
+# waiting for CI, e.g. to redeploy or roll back.
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST       the SSH host name (e.g. 4splus-ai.ddns.net)
+#   DEPLOY_PORT       2222
+#   DEPLOY_USER       the SSH user
+#   DEPLOY_PASSWORD   its password   } one of the two;
+#   DEPLOY_SSH_KEY    a private key  } the key wins if both are set
+# App secrets (SQL password, client secret, tunnel token) are NOT here: they live only in
+# /opt/medguard/.env on the server (deploy/setup-server.sh generates them).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One deployment at a time; a newer one waits instead of cancelling a rollout halfway.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & push images
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      registry: ${{ steps.meta.outputs.registry }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI just tested, not whatever main points at by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Image coordinates
+        id: meta
+        run: |
+          # GHCR names must be lowercase (owner is A7medM7md).
+          echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Bake builds every service of docker-compose.yml that has a `build:` in ONE
+      # BuildKit session, so the shared stages (.NET restore/build, Angular) run once.
+      - name: Build and push
+        uses: docker/bake-action@v6
+        env:
+          REGISTRY: ${{ steps.meta.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+          # Only so compose's ${VAR:?} checks pass while parsing; not baked into any image.
+          SQL_SA_PASSWORD: build-only
+          M2M_CLIENT_SECRET: build-only
+        with:
+          source: .
+          files: docker-compose.yml
+          push: true
+          set: |
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=medguard
+            *.cache-to=type=gha,scope=medguard,mode=max
+
+  deploy:
+    name: Deploy to medguard.dpdns.org
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: production
+      url: https://medguard.dpdns.org
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+
+      - name: Prepare SSH
+        run: |
+          for v in DEPLOY_HOST DEPLOY_USER; do
+            [ -n "${!v}" ] || { echo "::error::Repository secret $v is not set."; exit 1; }
+          done
+          if [ -z "$DEPLOY_SSH_KEY" ] && [ -z "$DEPLOY_PASSWORD" ]; then
+            echo "::error::Set the DEPLOY_SSH_KEY or the DEPLOY_PASSWORD repository secret."; exit 1
+          fi
+          PORT="${DEPLOY_PORT:-22}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Tiny wrappers so the steps below don't care which auth method is used.
+          if [ -n "$DEPLOY_SSH_KEY" ]; then
+            printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+            AUTH="-i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes"; PREFIX=""
+          else
+            sudo apt-get install -y -qq sshpass >/dev/null
+            AUTH="-o PreferredAuthentications=password -o PubkeyAuthentication=no"; PREFIX="sshpass -e"
+          fi
+          printf '#!/bin/sh\nSSHPASS="$DEPLOY_PASSWORD" exec %s ssh %s -p %s -o ServerAliveInterval=30 "$DEPLOY_USER@$DEPLOY_HOST" "$@"\n' "$PREFIX" "$AUTH" "$PORT" > ~/remote
+          printf '#!/bin/sh\nSSHPASS="$DEPLOY_PASSWORD" exec %s scp %s -P %s "$@"\n' "$PREFIX" "$AUTH" "$PORT" > ~/upload
+          chmod +x ~/remote ~/upload
+
+      - name: Upload compose file and deploy script
+        run: |
+          ~/remote 'mkdir -p /opt/medguard'
+          ~/upload docker-compose.yml deploy/deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:/opt/medguard/"
+
+      - name: Roll out ${{ needs.build.outputs.tag }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | ~/remote \
+            "GHCR_LOGIN=1 GHCR_USER=${{ github.actor }} bash /opt/medguard/deploy.sh ${{ needs.build.outputs.tag }}"

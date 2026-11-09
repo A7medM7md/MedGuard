@@ -254,6 +254,38 @@ Demo accounts (seeded test users, not a real user database yet):
 
 ---
 
+# 🐳 Docker & Deployment
+
+The whole application runs in containers ([`docker-compose.yml`](docker-compose.yml),
+one multi-stage [`Dockerfile`](Dockerfile)):
+
+| Container | What |
+|---|---|
+| `api` | MedGuard.API on **Kestrel**, also serving the Angular SPA from `wwwroot` |
+| `identity` | Duende IdentityServer on **Kestrel**, under `/identity` |
+| `ingestion-bridge`, `monitoring-worker` | the MQTT → Kafka → SQL pipeline |
+| `edge` | nginx path router: `/identity/` → identity, everything else → api |
+| `cloudflared` | Cloudflare Tunnel connector (production, `tunnel` profile) |
+| `migrator` | applies EF Core migrations once, then exits |
+| `sqlserver`, `kafka` (+ `kafka-init`), `hivemq` | infrastructure |
+| `simulator`, `kafkalab` | opt-in (`--profile simulator` / `--profile tools`) |
+
+```bash
+cp .env.example .env          # set the secrets (and the "Local run" origins)
+docker compose up -d --build  # then open http://localhost:8088
+```
+
+**Production** — **https://medguard.dpdns.org**, through a Cloudflare Tunnel: Cloudflare
+terminates HTTPS and forwards over the tunnel to `cloudflared` → `edge`
+([`deploy/nginx/edge.conf`](deploy/nginx/edge.conf)), so no inbound port is open on the
+server, and SPA, API and IdentityServer share one origin. Every green CI run on `main` triggers
+[`deploy.yml`](.github/workflows/deploy.yml): build all images → push to GHCR → SSH
+to the server → `deploy/deploy.sh <sha>` (pull, migrate, roll, wait for health).
+One-time server preparation: [`deploy/setup-server.sh`](deploy/setup-server.sh).
+Details: [ADR 0012](medguard-backend/docs/adr/0012-containerized-self-hosted-deployment.md).
+
+---
+
 # 📡 Example Request
 
 ```json

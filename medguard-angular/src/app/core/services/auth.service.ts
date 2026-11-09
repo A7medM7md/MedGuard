@@ -10,10 +10,9 @@ const authConfig: AuthConfig = {
   responseType: 'code',
   scope: environment.identity.scope,
   showDebugInformation: !environment.production,
-  // The Duende dev cert on https://localhost:5001 is a real HTTPS issuer even in
-  // local dev, so this stays strict — it's only ever relaxed for genuinely
-  // non-HTTPS local backends, which this isn't.
-  requireHttps: true,
+  // Strict everywhere except the self-hosted build served over plain HTTP
+  // (environment.selfhost.ts), where the issuer is the page's own origin.
+  requireHttps: environment.identity.requireHttps,
 };
 
 /**

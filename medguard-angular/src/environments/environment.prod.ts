@@ -9,5 +9,6 @@ export const environment = {
     clientId: 'medguard-angular',
     scope: 'openid profile roles medguard.api offline_access',
     apiScope: 'medguard.api',
+    requireHttps: true,
   },
 };

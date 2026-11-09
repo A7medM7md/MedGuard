@@ -1,0 +1,35 @@
+# Build context = repo root. Keep it small and never send secrets or local state.
+.git
+.github
+**/.vs
+**/.vscode
+**/.idea
+**/.claude
+**/*.user
+**/*.suo
+
+# .NET build output
+**/bin
+**/obj
+**/TestResults
+
+# Angular build output / caches / deps (npm ci runs inside the image)
+medguard-angular/node_modules
+medguard-angular/dist
+medguard-angular/.angular
+medguard-angular/.vercel
+
+# Local signing keys and publish profiles
+medguard-backend/src/MedGuard.IdentityServer/keys
+**/Properties/PublishProfiles
+
+# Not needed by any image
+medguard-backend/tests
+medguard-backend/loadtest
+medguard-backend/docs
+medguard-backend/observability
+deploy/*
+!deploy/nginx
+**/*.md
+.env
+.env.*

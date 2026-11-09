@@ -1,0 +1,6 @@
+# Files executed inside Linux containers / on the server must keep LF endings,
+# even when checked out on Windows with core.autocrlf=true.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+docker-compose.yml text eol=lf
+deploy/nginx/*.conf text eol=lf
