@@ -10,6 +10,9 @@ public interface IBatchRepository : IRepository<Batch>
     /// <summary>Loads several batches, TRACKED (they're about to be modified), in one query.</summary>
     Task<IReadOnlyList<Batch>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default);
 
-    /// <summary>Loads a batch with its readings, alerts and shipments in one query — used for the batch detail view.</summary>
-    Task<Batch?> GetWithHistoryAsync(Guid batchId, CancellationToken ct = default);
+    /// <summary>
+    /// Loads a batch, read-only, with its newest <paramref name="readings"/> readings and
+    /// <paramref name="alerts"/> alerts plus all its shipments — used for the batch detail view.
+    /// </summary>
+    Task<Batch?> GetWithHistoryAsync(Guid batchId, int readings, int alerts, CancellationToken ct = default);
 }

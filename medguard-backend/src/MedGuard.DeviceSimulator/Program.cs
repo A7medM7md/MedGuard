@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using MedGuard.DeviceSimulator;
+using MedGuard.DeviceSimulator.Demo;
 using Microsoft.Extensions.Configuration;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
@@ -13,6 +14,10 @@ using OpenTelemetry.Trace;
 //   dotnet run -- watch                               print everything under medguard/devices/#
 //   dotnet run -- watch "medguard/devices/+/status"   only statuses (try other filters!)
 //   dotnet run -- publish <topic> '<payload>'         send one hand-written message
+//   dotnet run -- demo                                seed + run the HTTP demo fleet against the
+//                                                     deployed API (Demo section; --Simulation:Quiet=true
+//                                                     for summaries and alerts only)
+//   dotnet run -- demo-seed                           only create the demo fleet, then exit
 
 Console.OutputEncoding = Encoding.UTF8; // for "°C"
 
@@ -44,6 +49,16 @@ if (mode == "publish")
 {
     var positional = args.Where(a => !a.StartsWith("--")).ToArray();
     await RawPublisher.RunAsync(mqtt, positional[1], positional[2], cts.Token);
+    return;
+}
+
+// No broker at all: the fleet talks HTTP to a deployed API (see Demo/DemoFleet.cs).
+if (mode is "demo" or "demo-seed")
+{
+    var demo = config.GetSection("Demo").Get<DemoOptions>() ?? new DemoOptions();
+    Log.Quiet = sim.Quiet;
+    using var api = new MedGuardApi(demo);
+    await new DemoFleet(api, demo).RunAsync(seedOnly: mode == "demo-seed", cts.Token);
     return;
 }
 

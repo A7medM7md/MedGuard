@@ -6,6 +6,9 @@ public interface ISensorReadingRepository : IRepository<SensorReading>
 {
     Task<IReadOnlyList<SensorReading>> GetByBatchIdAsync(Guid batchId, int take = 100, CancellationToken ct = default);
     Task<SensorReading?> GetLatestForBatchAsync(Guid batchId, CancellationToken ct = default);
+
+    /// <summary>The newest reading of every batch that has one, in one query.</summary>
+    Task<IReadOnlyList<SensorReading>> GetLatestPerBatchAsync(CancellationToken ct = default);
     Task<bool> ExistsByMessageIdAsync(Guid messageId, CancellationToken ct = default);
 
     /// <summary>Which of these message ids are already recorded. One query for a whole consumer batch.</summary>

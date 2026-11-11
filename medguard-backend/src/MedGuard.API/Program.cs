@@ -12,7 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Serilog, OpenTelemetry, health checks: same setup as the bridge and worker (ADR 0011).
 builder.AddServiceDefaults("medguard-api");
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    // Timestamps go out as UTC with a "Z" (see UtcDateTimeConverter).
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new MedGuard.API.Json.UtcDateTimeConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

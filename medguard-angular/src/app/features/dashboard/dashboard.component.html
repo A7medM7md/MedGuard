@@ -35,7 +35,7 @@
           [value]="inTransitBatches().length"
           [icon]="Truck"
           tone="transit"
-          [trend]="{ direction: 'up', label: '+1 vs. yesterday' }"
+          [hint]="inTransitBatches().length > 0 ? 'Shipments on the road' : 'Nothing on the road'"
         />
         <mg-kpi-card
           label="Unresolved alerts"

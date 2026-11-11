@@ -40,6 +40,8 @@ export interface BatchDto {
   minSafeTemperatureC: number;
   maxSafeTemperatureC: number;
   status: number;
+  /** Newest reading — sent by the list endpoint (GET /batches) only; absent on older API builds. */
+  lastReading?: SensorReadingDto | null;
 }
 
 export interface BatchDetailDto {

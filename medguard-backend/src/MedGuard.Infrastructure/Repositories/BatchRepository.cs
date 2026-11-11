@@ -19,10 +19,16 @@ public class BatchRepository : EfRepository<Batch>, IBatchRepository
     public async Task<IReadOnlyList<Batch>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default) =>
         await Set.Where(b => ids.Contains(b.Id)).ToListAsync(ct);
 
-    public async Task<Batch?> GetWithHistoryAsync(Guid batchId, CancellationToken ct = default) =>
+    // Filtered includes: the newest N rows are picked by SQL Server. Including every
+    // reading and trimming in memory made this call slower with each reading a batch
+    // ever recorded, and the Monitoring page calls it for every batch every 10s.
+    // Split queries: one JOIN across three collections would multiply their rows.
+    public async Task<Batch?> GetWithHistoryAsync(Guid batchId, int readings, int alerts, CancellationToken ct = default) =>
         await Set
-            .Include(b => b.SensorReadings)
-            .Include(b => b.Alerts)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(b => b.SensorReadings.OrderByDescending(r => r.RecordedAtUtc).Take(readings))
+            .Include(b => b.Alerts.OrderByDescending(a => a.TriggeredAtUtc).Take(alerts))
             .Include(b => b.Shipments)
             .FirstOrDefaultAsync(b => b.Id == batchId, ct);
 }

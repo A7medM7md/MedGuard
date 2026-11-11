@@ -31,8 +31,8 @@ export function mapBatchDto(dto: BatchDto): Batch {
     unit: 'units',
     manufacturedAt: dto.manufacturedDateUtc,
     expiresAt: dto.expiryDateUtc,
-    deviceId: '',
-    lastReading: null, // not exposed on the list DTO yet — fetch batch detail for full history
+    deviceId: dto.lastReading?.deviceId ?? '',
+    lastReading: dto.lastReading ? mapReadingDto(dto.lastReading) : null,
     location: { lat: 0, lng: 0, label: '' }, // not modeled server-side yet
   };
 }

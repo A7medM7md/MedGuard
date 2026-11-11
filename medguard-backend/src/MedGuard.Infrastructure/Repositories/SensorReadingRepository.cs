@@ -22,6 +22,14 @@ namespace MedGuard.Infrastructure.Repositories
                 .OrderByDescending(r => r.RecordedAtUtc)
                 .FirstOrDefaultAsync(ct);
 
+        // Translates to ROW_NUMBER() OVER (PARTITION BY BatchId ORDER BY RecordedAtUtc DESC),
+        // served by the (BatchId, RecordedAtUtc) index.
+        public async Task<IReadOnlyList<SensorReading>> GetLatestPerBatchAsync(CancellationToken ct = default) =>
+            await Set.AsNoTracking()
+                .GroupBy(r => r.BatchId)
+                .Select(g => g.OrderByDescending(r => r.RecordedAtUtc).First())
+                .ToListAsync(ct);
+
         public Task<bool> ExistsByMessageIdAsync(Guid messageId, CancellationToken ct = default) =>
             Set.AnyAsync(r => r.MessageId == messageId, ct);
 

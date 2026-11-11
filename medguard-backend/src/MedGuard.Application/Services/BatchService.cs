@@ -57,7 +57,7 @@ public class BatchService : ResponseHandler, IBatchService
 
     public async Task<Response<BatchDetailDto>> GetDetailAsync(Guid id, CancellationToken ct = default)
     {
-        var batch = await _uow.Batches.GetWithHistoryAsync(id, ct)
+        var batch = await _uow.Batches.GetWithHistoryAsync(id, readings: 50, alerts: 100, ct)
             ?? throw new NotFoundException(nameof(Batch), id);
 
         var readings = batch.SensorReadings
@@ -84,7 +84,15 @@ public class BatchService : ResponseHandler, IBatchService
     public async Task<Response<List<BatchDto>>> GetAllAsync(CancellationToken ct = default)
     {
         var batches = await _uow.Batches.GetAllAsync(ct);
-        var result = batches.Select(ToDto).ToList();
+        var latest = (await _uow.SensorReadings.GetLatestPerBatchAsync(ct)).ToDictionary(r => r.BatchId);
+        var result = batches
+            .Select(b => ToDto(b) with
+            {
+                LastReading = latest.TryGetValue(b.Id, out var r)
+                    ? new SensorReadingDto(r.Id, r.BatchId, r.DeviceId, r.TemperatureC, r.HumidityPercent, r.Latitude, r.Longitude, r.RecordedAtUtc)
+                    : null,
+            })
+            .ToList();
         return Success(result, "Batches retrieved successfully.");
     }
 

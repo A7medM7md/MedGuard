@@ -5,6 +5,7 @@ import { provideOAuthClient } from 'angular-oauth2-oidc';
 import { routes } from './app.routes';
 import { AuthService } from './core/services/auth.service';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
+import { utcDatesInterceptor } from './core/interceptors/utc-dates.interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -13,7 +14,7 @@ export const appConfig: ApplicationConfig = {
     // so this works with no extra wiring.
     provideZonelessChangeDetection(),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    provideHttpClient(withInterceptors([authInterceptor, utcDatesInterceptor])),
     provideOAuthClient(),
     // Resolves the OIDC discovery document and completes any in-progress login
     // redirect BEFORE the router activates the first route — otherwise authGuard

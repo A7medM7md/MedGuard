@@ -24,7 +24,15 @@ public record BatchDto(
     decimal MinSafeTemperatureC,
     decimal MaxSafeTemperatureC,
     BatchStatus Status
-);
+)
+{
+    /// <summary>
+    /// The batch's most recent reading. Filled by the list endpoint only, so a
+    /// table of batches can show each one's current temperature without a
+    /// detail call per row. Null when the batch has no readings yet.
+    /// </summary>
+    public SensorReadingDto? LastReading { get; init; }
+}
 
 public record BatchDetailDto(
     BatchDto Batch,

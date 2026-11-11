@@ -192,5 +192,9 @@ export class MonitoringPageComponent implements OnInit, OnDestroy {
 }
 
 function sortByLevel(cards: MonitorCard[]): MonitorCard[] {
-  return [...cards].sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
+  // A quarantined batch stays a problem batch after its temperature recovers: it is
+  // held until someone reviews it, so it ranks right after live critical readings.
+  const rank = (c: MonitorCard) =>
+    c.level === 'critical' ? 0 : c.batch.status === 'quarantined' ? 1 : LEVEL_ORDER[c.level] + 1;
+  return [...cards].sort((a, b) => rank(a) - rank(b));
 }

@@ -95,7 +95,7 @@ import { CommonModule } from '@angular/common';
       font-size: 9px;
       font-weight: 600;
       letter-spacing: 0.12em;
-      color: #64748B;
+      color: var(--brand-subtitle-color, #64748B);
       font-family: 'JetBrains Mono', monospace, sans-serif;
       margin-top: 2px;
     }
