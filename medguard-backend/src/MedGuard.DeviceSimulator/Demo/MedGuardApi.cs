@@ -47,6 +47,8 @@ public sealed class MedGuardApi : IDisposable
             if (response.StatusCode == HttpStatusCode.Unauthorized && auth && attempt == 1) continue;
 
             var text = await response.Content.ReadAsStringAsync(ct);
+            // Some actions answer 204 No Content (e.g. resolving an alert): success, no data.
+            if (response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(text)) return default!;
             Envelope<T>? envelope = null;
             try { envelope = JsonSerializer.Deserialize<Envelope<T>>(text, Json); }
             catch (JsonException) { /* not an envelope, e.g. an HTML error page from the host */ }

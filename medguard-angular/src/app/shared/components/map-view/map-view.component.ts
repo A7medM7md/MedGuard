@@ -1,4 +1,15 @@
-import { AfterViewInit, Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, ViewChild } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnDestroy,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type * as L from 'leaflet';
 import { StatusTone } from '../../../core/status';
@@ -9,8 +20,14 @@ export interface MapPinData {
   lng: number;
   label: string;
   sublabel?: string;
+  /** Extra tooltip lines (route, courier, last seen...). Plain text — escaped here. */
+  details?: string[];
   tone: StatusTone;
   geofence?: number; // meters
+  /** Recent positions, oldest first, drawn as a dashed breadcrumb behind the pin. */
+  trail?: [number, number][];
+  /** Pulse the pin (a live breach). Defaults to tone === 'critical'. */
+  pulse?: boolean;
 }
 
 const TONE_HEX: Record<StatusTone, string> = {
@@ -21,6 +38,9 @@ const TONE_HEX: Record<StatusTone, string> = {
   neutral: '#57534e',
 };
 
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
 @Component({
   selector: 'mg-map-view',
   standalone: true,
@@ -30,29 +50,42 @@ const TONE_HEX: Record<StatusTone, string> = {
 export class MapViewComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() pins: MapPinData[] = [];
   @Input() height = 300;
+  /** Initial view when there are no pins to fit (default: Egypt, where the fleet runs). */
+  @Input() center: [number, number] = [27.2, 30.8];
+  @Input() zoom = 5;
+  @Input() ariaLabel = 'Map';
+
+  @Output() pinClick = new EventEmitter<string>();
 
   @ViewChild('mapEl') mapEl!: ElementRef<HTMLDivElement>;
 
   private map?: L.Map;
-  private markers: L.Layer[] = [];
+  private layers: L.Layer[] = [];
   private leaflet?: typeof L;
+  /** The pin ids last fitted to, so a data refresh doesn't undo the user's pan/zoom. */
+  private fittedKey = '';
 
   async ngAfterViewInit(): Promise<void> {
     // Dynamic import keeps Leaflet out of the initial bundle and avoids SSR issues.
-    const leaflet = await import('leaflet');
+    // Leaflet is CommonJS: the bundler puts its API on `default`, not on the namespace.
+    const module = await import('leaflet');
+    const leaflet = ((module as unknown as { default?: typeof L }).default ?? module) as typeof L;
     this.leaflet = leaflet;
 
     this.map = leaflet.map(this.mapEl.nativeElement, {
-      center: [50.5, 8.0],
-      zoom: 5,
+      center: this.center,
+      zoom: this.zoom,
       zoomControl: true,
       attributionControl: true,
+      scrollWheelZoom: false, // a dashboard scrolls; don't hijack the wheel
     });
 
-    leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(this.map);
+    leaflet
+      .tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors',
+      })
+      .addTo(this.map);
 
     this.renderPins();
   }
@@ -67,38 +100,52 @@ export class MapViewComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (!this.map || !this.leaflet) return;
     const L = this.leaflet;
 
-    this.markers.forEach((m) => this.map!.removeLayer(m));
-    this.markers = [];
+    this.layers.forEach((layer) => this.map!.removeLayer(layer));
+    this.layers = [];
 
-    this.pins.forEach((pin) => {
+    for (const pin of this.pins) {
       const color = TONE_HEX[pin.tone];
+
+      if (pin.trail && pin.trail.length > 1) {
+        this.layers.push(
+          L.polyline(pin.trail, { color, weight: 3, opacity: 0.55, dashArray: '4 6', interactive: false }).addTo(this.map),
+        );
+      }
+      if (pin.geofence) {
+        this.layers.push(
+          L.circle([pin.lat, pin.lng], {
+            radius: pin.geofence,
+            color,
+            fillColor: color,
+            fillOpacity: 0.08,
+            weight: 1,
+            interactive: false,
+          }).addTo(this.map),
+        );
+      }
+
+      const pulse = pin.pulse ?? pin.tone === 'critical';
       const icon = L.divIcon({
         className: '',
-        html: `<span class="mg-pin-dot ${pin.tone === 'critical' ? 'mg-pin-pulse' : ''}" style="background:${color}; color:${color}"></span>`,
+        html: `<span class="mg-pin-dot ${pulse ? 'mg-pin-pulse' : ''}" style="background:${color}; color:${color}"></span>`,
         iconSize: [14, 14],
       });
-      const marker = L.marker([pin.lat, pin.lng], { icon }).addTo(this.map!);
+      const marker = L.marker([pin.lat, pin.lng], { icon, keyboard: true, title: pin.label }).addTo(this.map);
+      const lines = [pin.sublabel, ...(pin.details ?? [])].filter((l): l is string => !!l);
       marker.bindTooltip(
-        `<span class="mg-tip-title">${pin.label}</span>${pin.sublabel ? `<span class="mg-tip-sub">${pin.sublabel}</span>` : ''}`,
+        `<span class="mg-tip-title">${escapeHtml(pin.label)}</span>` +
+          lines.map((l) => `<span class="mg-tip-sub">${escapeHtml(l)}</span>`).join(''),
         { className: 'mg-tip', direction: 'top', offset: [0, -8] },
       );
-      this.markers.push(marker);
+      marker.on('click', () => this.pinClick.emit(pin.id));
+      this.layers.push(marker);
+    }
 
-      if (pin.geofence) {
-        const circle = L.circle([pin.lat, pin.lng], {
-          radius: pin.geofence,
-          color,
-          fillColor: color,
-          fillOpacity: 0.06,
-          weight: 1,
-        }).addTo(this.map!);
-        this.markers.push(circle);
-      }
-    });
-
-    if (this.pins.length > 0) {
-      const bounds = L.latLngBounds(this.pins.map((p) => [p.lat, p.lng] as [number, number]));
-      this.map.fitBounds(bounds.pad(0.3));
+    const key = this.pins.map((p) => p.id).sort().join('|');
+    if (this.pins.length > 0 && key !== this.fittedKey) {
+      const points = this.pins.flatMap((p) => [[p.lat, p.lng] as [number, number], ...(p.trail ?? [])]);
+      this.map.fitBounds(L.latLngBounds(points).pad(0.25), { maxZoom: 9 });
+      this.fittedKey = key;
     }
   }
 

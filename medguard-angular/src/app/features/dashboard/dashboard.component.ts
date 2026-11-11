@@ -24,7 +24,7 @@ import { KpiCardSkeletonComponent } from '../../shared/components/skeletons/kpi-
 import { TableRowSkeletonComponent } from '../../shared/components/skeletons/table-row-skeleton.component';
 import { AlertFeedComponent } from '../../shared/components/alert-feed/alert-feed.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
-import { MapViewComponent, MapPinData } from '../../shared/components/map-view/map-view.component';
+import { FleetCardComponent } from './fleet-card.component';
 import { DataTableComponent, ColumnDirective } from '../../shared/components/data-table/data-table.component';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
@@ -42,7 +42,7 @@ import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/c
     TableRowSkeletonComponent,
     AlertFeedComponent,
     EmptyStateComponent,
-    // MapViewComponent,
+    FleetCardComponent,
     DataTableComponent,
     ColumnDirective,
     StatusBadgeComponent,
@@ -88,18 +88,6 @@ export class DashboardPageComponent implements OnInit {
   );
   criticalHint = computed(() =>
     this.criticalAlertCount() > 0 ? `${this.criticalAlertCount()} critical need action now` : 'Nothing needs action',
-  );
-
-  pins = computed<MapPinData[]>(() =>
-    this.inTransitBatches().map((b) => ({
-      id: b.id,
-      lat: b.location.lat,
-      lng: b.location.lng,
-      label: b.batchNumber,
-      sublabel: `${b.drugName} · ${b.lastReading?.temperatureC.toFixed(1) ?? '—'} °C`,
-      tone: readingLevel(b, b.lastReading) === 'critical' ? 'critical' : batchStatusMeta[b.status].tone,
-      geofence: 25000,
-    })),
   );
 
   confirmDescription = computed(() => {
