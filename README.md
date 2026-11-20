@@ -25,7 +25,6 @@ alerts pushed live over SignalR. The public demo is fed around the clock by a si
 sensor fleet, so it always shows live data.
 
 **Live demo:** https://medguardd.vercel.app · sign in as `admin@medguard.local` / `Demo@123`<br>
-**Self-hosted (full pipeline):** https://medguard.dpdns.org
 
 </div>
 
